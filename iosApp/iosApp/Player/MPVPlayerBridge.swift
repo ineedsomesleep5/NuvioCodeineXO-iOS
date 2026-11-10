@@ -111,6 +111,9 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func configureAudioOutput(audioOutput: String) {
         playerVC?.configureAudioOutput(audioOutput: audioOutput)
     }
+    func configureAudioFilter(filter: String) {
+        playerVC?.configureAudioFilter(filter)
+    }
     func setPlaybackSpeed(speed: Float) { playerVC?.setSpeed(speed) }
     func setMuted(muted: Bool) { playerVC?.setMuted(muted) }
     func setResizeMode(mode: Int32) { playerVC?.setResize(Int(mode)) }
@@ -812,6 +815,14 @@ final class MPVPlayerViewController: UIViewController {
             resolvedAudioOutput = audioOutput
         }
         setStringProperty("ao", resolvedAudioOutput)
+    }
+
+    private var appliedAudioFilter: String?
+
+    func configureAudioFilter(_ filter: String) {
+        guard mpv != nil, appliedAudioFilter != filter else { return }
+        appliedAudioFilter = filter
+        setStringProperty("af", filter)
     }
 
     func setSpeed(_ speed: Float) {

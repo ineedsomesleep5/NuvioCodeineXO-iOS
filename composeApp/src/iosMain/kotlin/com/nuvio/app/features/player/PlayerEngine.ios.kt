@@ -463,8 +463,14 @@ actual fun PlatformPlayerSurface(
     }
 }
 
+private const val IosAudioNightModeFilter = "lavfi=[dynaudnorm=f=75:g=25:p=0.55:m=2.0]"
+
 private fun NuvioPlayerBridge.applyIosVideoOutputSettings(settings: PlayerSettingsUiState) {
     configureAudioOutput(audioOutput = settings.iosAudioOutputMode.mpvValue)
+    // Audio night mode: same FFmpeg dynamic range normaliser the desktop player uses.
+    configureAudioFilter(
+        if (settings.audioNightModeEnabled) IosAudioNightModeFilter else "",
+    )
     configureVideoOutput(
         hardwareDecoder = settings.iosHardwareDecoderMode.mpvValue,
         targetColorspaceHint = settings.iosTargetColorspaceHintEnabled,

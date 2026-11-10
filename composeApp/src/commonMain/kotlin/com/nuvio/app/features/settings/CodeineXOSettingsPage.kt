@@ -52,6 +52,7 @@ import kotlin.math.roundToInt
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.isDesktop
+import com.nuvio.app.isIos
 import com.nuvio.app.isWindows
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -531,7 +532,8 @@ internal fun LazyListScope.codeineXOSettingsContent(
 
     }
     if (section == null || section == SettingsPage.PlaybackAudio) {
-    if (isDesktop) {
+    // Desktop (libmpv) and iOS (MPVKit) both ship FFmpeg's dynaudnorm filter.
+    if (isDesktop || isIos) {
         // ─── Audio Enhancement ───
         item {
             val playerSettings by remember {
