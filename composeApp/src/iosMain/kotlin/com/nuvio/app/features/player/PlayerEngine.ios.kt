@@ -287,7 +287,8 @@ actual fun PlatformPlayerSurface(
                 bridge.setSubtitleDelayMs(delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS))
             }
 
-            override fun applySubtitleStyle(style: SubtitleStyleState) {
+            // mpv on iOS always renders subtitles through libass, so `useLibass` needs no switch here.
+            override fun applySubtitleStyle(style: SubtitleStyleState, useLibass: Boolean) {
                 subtitleStyle = style
                 bridge.applySubtitleStyle(
                     textColor = style.textColor.toMpvColorString(),

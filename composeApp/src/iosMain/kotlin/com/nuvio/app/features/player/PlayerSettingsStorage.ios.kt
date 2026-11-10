@@ -127,6 +127,11 @@ actual object PlayerSettingsStorage {
     private const val audioNightModeEnabledKey = "audio_night_mode_enabled"
     private const val showSeekbarWhileSeekingKey = "show_seekbar_while_seeking"
     private const val seekPreviewEnabledKey = "seek_preview_enabled"
+    private const val showClockInPlayerKey = "show_clock_in_player"
+    private const val seekPreviewWhileDraggingKey = "seek_preview_while_dragging"
+    private const val seekPreviewWhileHoveringKey = "seek_preview_while_hovering"
+    private const val seekPreviewWhileKeyboardSeekingKey = "seek_preview_while_keyboard_seeking"
+    private const val seekPreviewThumbnailCountKey = "seek_preview_thumbnail_count"
     private const val seekrApiKeyKey = "seekr_api_key"
     private const val showRemainingTimeKey = "show_remaining_time"
     private const val eyeFilterEnabledKey = "eye_filter_enabled"
@@ -267,6 +272,25 @@ actual object PlayerSettingsStorage {
     private fun saveInt(keyBase: String, value: Int) {
         NSUserDefaults.standardUserDefaults.setInteger(value.toLong(), forKey = ProfileScopedKey.of(keyBase))
     }
+
+    private fun loadString(keyBase: String): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(keyBase))
+
+    private fun saveString(keyBase: String, value: String) {
+        NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(keyBase))
+    }
+
+    // Settings added by the CodeineXO fork (same keys as the desktop build).
+    actual fun loadShowClockInPlayer(): Boolean? = loadBoolean(showClockInPlayerKey)
+    actual fun saveShowClockInPlayer(enabled: Boolean) = saveBoolean(showClockInPlayerKey, enabled)
+    actual fun loadSeekPreviewWhileDragging(): Boolean? = loadBoolean(seekPreviewWhileDraggingKey)
+    actual fun saveSeekPreviewWhileDragging(value: Boolean) = saveBoolean(seekPreviewWhileDraggingKey, value)
+    actual fun loadSeekPreviewWhileHovering(): Boolean? = loadBoolean(seekPreviewWhileHoveringKey)
+    actual fun saveSeekPreviewWhileHovering(value: Boolean) = saveBoolean(seekPreviewWhileHoveringKey, value)
+    actual fun loadSeekPreviewWhileKeyboardSeeking(): Boolean? = loadBoolean(seekPreviewWhileKeyboardSeekingKey)
+    actual fun saveSeekPreviewWhileKeyboardSeeking(value: Boolean) = saveBoolean(seekPreviewWhileKeyboardSeekingKey, value)
+    actual fun loadSeekPreviewThumbnailCount(): Int? = loadInt(seekPreviewThumbnailCountKey)
+    actual fun saveSeekPreviewThumbnailCount(value: Int) = saveInt(seekPreviewThumbnailCountKey, value)
 
     actual fun loadShowLoadingOverlay(): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults

@@ -19,7 +19,9 @@ internal class BoundedSheetCache(
     private val loadSheet: suspend (String) -> ImageBitmap? = ::loadPreviewSheet,
 ) {
     private val mutex = Mutex()
-    private val memoryCache = LinkedHashMap<String, ImageBitmap>(maxDecodedSheets + 2, 0.75f, true)
+    // Insertion-ordered map kept in least-recently-used order by re-inserting on hit.
+    // (The JVM-only access-order LinkedHashMap constructor does not exist on Kotlin/Native.)
+    private val memoryCache = LinkedHashMap<String, ImageBitmap>()
     private val inFlight = mutableMapOf<String, CompletableDeferred<ImageBitmap?>>()
     private var decodedBytes = 0L
 
@@ -30,7 +32,10 @@ internal class BoundedSheetCache(
     suspend fun get(sheetUrl: String): ImageBitmap? {
         var owner = false
         val pending = mutex.withLock {
-            memoryCache[sheetUrl]?.let { return it }
+            memoryCache.remove(sheetUrl)?.let { hit ->
+                memoryCache[sheetUrl] = hit
+                return hit
+            }
             inFlight[sheetUrl] ?: CompletableDeferred<ImageBitmap?>().also {
                 inFlight[sheetUrl] = it
                 owner = true

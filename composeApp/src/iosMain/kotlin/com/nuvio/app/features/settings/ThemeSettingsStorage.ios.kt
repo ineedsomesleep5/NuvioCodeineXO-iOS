@@ -10,7 +10,28 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import platform.Foundation.NSUserDefaults
 
-actual object ThemeSettingsStorage {
+internal actual object ThemeSettingsStorage : AuraSettingsStore {
+    // CodeineXO surface/aura preferences (same keys as desktop), persisted per profile.
+    private const val auraSettingsKey = "aura_settings"
+    private const val surfaceStyleKey = "surface_style"
+    private const val frostedGlassEnabledKey = "frosted_glass_enabled"
+
+    override fun loadAuraSettings(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(auraSettingsKey))
+    override fun saveAuraSettings(value: String) =
+        NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(auraSettingsKey))
+    override fun loadSurfaceStyle(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(surfaceStyleKey))
+    override fun saveSurfaceStyle(value: String) =
+        NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(surfaceStyleKey))
+    override fun loadFrostedGlassEnabled(): Boolean? {
+        val key = ProfileScopedKey.of(frostedGlassEnabledKey)
+        val defaults = NSUserDefaults.standardUserDefaults
+        return if (defaults.objectForKey(key) != null) defaults.boolForKey(key) else null
+    }
+    override fun saveFrostedGlassEnabled(enabled: Boolean) =
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(frostedGlassEnabledKey))
+
     private const val selectedThemeKey = "selected_theme"
     private const val customThemeColorsKey = "custom_theme_colors"
     private const val amoledEnabledKey = "amoled_enabled"
