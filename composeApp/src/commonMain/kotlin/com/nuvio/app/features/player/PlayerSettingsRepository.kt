@@ -1,0 +1,1720 @@
+package com.nuvio.app.features.player
+
+import com.nuvio.app.isDesktop
+import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.features.player.skip.AutoSkipSegmentType
+import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
+import com.nuvio.app.features.streams.StreamAutoPlayMode
+import com.nuvio.app.features.streams.StreamAutoPlaySource
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.abs
+
+val STREAM_AUTO_PLAY_TIMEOUT_VALUES: List<Int> = listOf(
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, Int.MAX_VALUE
+)
+
+/**
+ * Snaps [value] to the nearest allowed timeout value in [STREAM_AUTO_PLAY_TIMEOUT_VALUES].
+ * Ties break to the lower value. Negative values snap to 0.
+ */
+fun snapToAllowedTimeout(value: Int): Int {
+    if (value <= 0) return 0
+    var bestValue = STREAM_AUTO_PLAY_TIMEOUT_VALUES[0]
+    var bestDistance = Long.MAX_VALUE
+    for (allowed in STREAM_AUTO_PLAY_TIMEOUT_VALUES) {
+        val distance = abs(value.toLong() - allowed.toLong())
+        if (distance < bestDistance || (distance == bestDistance && allowed < bestValue)) {
+            bestDistance = distance
+            bestValue = allowed
+        }
+    }
+    return bestValue
+}
+
+data class PlayerSettingsUiState(
+    val useLegacyPlayerLayout: Boolean = false,
+    val playerUiMode: PlayerUiMode = PlayerUiMode.CODEINE_XO,
+    val showLoadingOverlay: Boolean = true,
+    val showPlayerLoadingStatus: Boolean = true,
+    val pauseOverlayEnabled: Boolean = true,
+    val showParentalGuide: Boolean = true,
+    val resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
+    val holdToSpeedEnabled: Boolean = true,
+    val holdToSpeedValue: Float = 2f,
+    val touchGesturesEnabled: Boolean = true,
+    val externalPlayerEnabled: Boolean = false,
+    val externalPlayerForwardSubtitles: Boolean = false,
+    val externalPlayerSendSkipSegments: Boolean = false,
+    val externalPlayerId: String? = ExternalPlayerPlatform.defaultPlayerId(),
+    val preferredAudioLanguage: String = AudioLanguageOption.DEVICE,
+    val secondaryPreferredAudioLanguage: String? = null,
+    val preferredSubtitleLanguage: String = SubtitleLanguageOption.NONE,
+    val secondaryPreferredSubtitleLanguage: String? = null,
+    val subtitleStyle: SubtitleStyleState = SubtitleStyleState.DEFAULT,
+    val streamReuseLastLinkEnabled: Boolean = false,
+    val streamReuseLastLinkCacheHours: Int = 24,
+    val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer,
+    val autoSwitchPlaybackEngineOnError: Boolean = true,
+    val androidLibmpvVideoOutput: AndroidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext,
+    val androidLibmpvHardwareDecodingEnabled: Boolean = true,
+    val androidLibmpvYuv420pEnabled: Boolean = false,
+    val androidExoChaptersEnabled: Boolean = isDesktop,
+    val rememberAudioDelayPerDevice: Boolean = true,
+    val persistAudioAmplification: Boolean = false,
+    val audioAmplificationDb: Int = 0,
+    val downmixEnabled: Boolean = false,
+    val audioOutputChannels: AudioOutputChannels = AudioOutputChannels.default,
+    val maintainOriginalAudioOnDownmix: Boolean = true,
+    val centerMixLevelDb: Int = 0,
+    val decoderPriority: Int = 1,
+    val mapDV7ToHevc: Boolean = false,
+    val tunnelingEnabled: Boolean = false,
+    val exoNativeMemoryEnabled: Boolean = false,
+    val bufferEngineEnabled: Boolean = false,
+    val minBufferMs: Int = PlaybackBufferSettings.DEFAULT_MIN_BUFFER_MS,
+    val maxBufferMs: Int = PlaybackBufferSettings.DEFAULT_MAX_BUFFER_MS,
+    val bufferForPlaybackMs: Int = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+    val bufferForPlaybackAfterRebufferMs: Int = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+    val backBufferDurationMs: Int = PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS,
+    val targetBufferSizeMb: Int = PlaybackBufferSettings.DEFAULT_TARGET_BUFFER_MB,
+    val vodCacheEnabled: Boolean = false,
+    val vodCacheSizeMode: VodCacheSizeMode = VodCacheSizeMode.AUTO,
+    val vodCacheSizeMb: Int = VodCacheSizing.DEFAULT_SIZE_MB,
+    val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
+    val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
+    val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
+    val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
+    val streamAutoPlayRegex: String = "",
+    val streamAutoPlayTimeoutSeconds: Int = 3,
+    val skipIntroEnabled: Boolean = true,
+    val autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet(),
+    val animeSkipEnabled: Boolean = false,
+    val animeSkipClientId: String = "",
+    val introDbApiKey: String = "",
+    val introSubmitEnabled: Boolean = false,
+    val streamAutoPlayNextEpisodeEnabled: Boolean = false,
+    val streamAutoPlayNextEpisodeFallbackEnabled: Boolean = true,
+    val streamAutoPlayPreferBingeGroup: Boolean = true,
+    val streamAutoPlayReuseBingeGroup: Boolean = false,
+    val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
+    val nextEpisodeThresholdPercent: Float = 99f,
+    val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
+    val preloadNextEpisodeSources: Boolean = false,
+    val useLibass: Boolean = !isDesktop,
+    val libassRenderType: String = "CUES",
+    val libassRenderScale: String = "FULL",
+    val libassRenderMode: String = "OVERLAY",
+    val iosVideoOutputPreset: IosVideoOutputPreset = IosVideoOutputPreset.NativeEdr,
+    val iosToneMappingMode: IosToneMappingMode = IosToneMappingMode.Auto,
+    val iosTargetPrimaries: IosTargetPrimaries = IosTargetPrimaries.Auto,
+    val iosTargetTransfer: IosTargetTransfer = IosTargetTransfer.Auto,
+    val iosHardwareDecoderMode: IosHardwareDecoderMode = IosHardwareDecoderMode.VideoToolbox,
+    val iosAudioOutputMode: IosAudioOutputMode = IosAudioOutputMode.Auto,
+    val iosExtendedDynamicRangeEnabled: Boolean = true,
+    val iosTargetColorspaceHintEnabled: Boolean = true,
+    val iosHdrComputePeakEnabled: Boolean = true,
+    val iosDebandEnabled: Boolean = false,
+    val iosInterpolationEnabled: Boolean = false,
+    val iosBrightness: Int = 0,
+    val iosContrast: Int = 0,
+    val iosSaturation: Int = 0,
+    val iosGamma: Int = 0,
+    val nvidiaRtxSuperResolutionEnabled: Boolean = false,
+    val animeUpscalerOption: AnimeUpscalerOption = AnimeUpscalerOption.OFF,
+    val animeUpscalerEnabled: Boolean = false,
+    val animeUpscalerMode: AnimeUpscalerMode = AnimeUpscalerMode.FAST,
+    val svpMotionOption: SvpMotionOption = SvpMotionOption.OFF,
+    val playbackBufferPreset: PlaybackBufferPreset = PlaybackBufferPreset.MEDIUM,
+    val audioNightModeEnabled: Boolean = false,
+    val showSeekbarWhileSeeking: Boolean = true,
+    val showClockInPlayer: Boolean = true,
+    val seekPreviewEnabled: Boolean = true,
+    val seekPreviewWhileDragging: Boolean = true,
+    val seekPreviewWhileHovering: Boolean = true,
+    val seekPreviewWhileKeyboardSeeking: Boolean = true,
+    val seekPreviewThumbnailCount: Int = 5,
+    val seekrApiKey: String = "",
+    val showRemainingTime: Boolean = false,
+    val eyeFilterEnabled: Boolean = false,
+    val eyeFilterColor: String = "#000000",
+    val eyeFilterOpacity: Float = 0.35f,
+    val playerUiScale: Int = 100,
+)
+
+object PlayerSettingsRepository {
+    private val _uiState = MutableStateFlow(PlayerSettingsUiState())
+    val uiState: StateFlow<PlayerSettingsUiState> = _uiState.asStateFlow()
+
+    private var hasLoaded = false
+    private var useLegacyPlayerLayout = false
+    private var playerUiMode = PlayerUiMode.CODEINE_XO
+    private var showLoadingOverlay = true
+    private var showPlayerLoadingStatus = true
+    private var pauseOverlayEnabled = true
+    private var showParentalGuide = true
+    private var resizeMode = PlayerResizeMode.Fit
+    private var holdToSpeedEnabled = true
+    private var holdToSpeedValue = 2f
+    private var touchGesturesEnabled = true
+    private var externalPlayerEnabled = false
+    private var externalPlayerForwardSubtitles = false
+    private var externalPlayerSendSkipSegments = false
+    private var externalPlayerId: String? = ExternalPlayerPlatform.defaultPlayerId()
+    private var preferredAudioLanguage = AudioLanguageOption.DEVICE
+    private var secondaryPreferredAudioLanguage: String? = null
+    private var preferredSubtitleLanguage = SubtitleLanguageOption.NONE
+    private var secondaryPreferredSubtitleLanguage: String? = null
+    private var subtitleStyle = SubtitleStyleState.DEFAULT
+    private var streamReuseLastLinkEnabled = false
+    private var streamReuseLastLinkCacheHours = 24
+    private var androidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer
+    private var autoSwitchPlaybackEngineOnError = true
+    private var androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
+    private var androidLibmpvHardwareDecodingEnabled = true
+    private var androidLibmpvYuv420pEnabled = false
+    private var androidExoChaptersEnabled = isDesktop
+    private var rememberAudioDelayPerDevice = true
+    private var persistAudioAmplification = false
+    private var audioAmplificationDb = 0
+    private var downmixEnabled = false
+    private var audioOutputChannels = AudioOutputChannels.default
+    private var maintainOriginalAudioOnDownmix = true
+    private var centerMixLevelDb = 0
+    private var decoderPriority = 1
+    private var mapDV7ToHevc = false
+    private var tunnelingEnabled = false
+    private var exoNativeMemoryEnabled = false
+    private var bufferEngineEnabled = false
+    private var minBufferMs = PlaybackBufferSettings.DEFAULT_MIN_BUFFER_MS
+    private var maxBufferMs = PlaybackBufferSettings.DEFAULT_MAX_BUFFER_MS
+    private var bufferForPlaybackMs = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_MS
+    private var bufferForPlaybackAfterRebufferMs = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+    private var backBufferDurationMs = PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS
+    private var targetBufferSizeMb = PlaybackBufferSettings.DEFAULT_TARGET_BUFFER_MB
+    private var vodCacheEnabled = false
+    private var vodCacheSizeMode = VodCacheSizeMode.AUTO
+    private var vodCacheSizeMb = VodCacheSizing.DEFAULT_SIZE_MB
+    private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
+    private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
+    private var streamAutoPlaySelectedAddons: Set<String> = emptySet()
+    private var streamAutoPlaySelectedPlugins: Set<String> = emptySet()
+    private var streamAutoPlayRegex = ""
+    private var streamAutoPlayTimeoutSeconds = 3
+    private var skipIntroEnabled = true
+    private var autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet()
+    private var animeSkipEnabled = false
+    private var animeSkipClientId = ""
+    private var introDbApiKey = ""
+    private var introSubmitEnabled = false
+    private var streamAutoPlayNextEpisodeEnabled = false
+    private var streamAutoPlayNextEpisodeFallbackEnabled = true
+    private var streamAutoPlayPreferBingeGroup = true
+    private var streamAutoPlayReuseBingeGroup = false
+    private var nextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE
+    private var nextEpisodeThresholdPercent = 99f
+    private var nextEpisodeThresholdMinutesBeforeEnd = 2f
+    private var preloadNextEpisodeSources = false
+    private var useLibass = !isDesktop
+    private var libassRenderType = "OVERLAY_OPEN_GL"
+    private var libassRenderScale = "FULL"
+    private var libassRenderMode = "OVERLAY"
+    private var iosVideoOutputPreset = IosVideoOutputPreset.NativeEdr
+    private var iosToneMappingMode = IosToneMappingMode.Auto
+    private var iosTargetPrimaries = IosTargetPrimaries.Auto
+    private var iosTargetTransfer = IosTargetTransfer.Auto
+    private var iosHardwareDecoderMode = IosHardwareDecoderMode.VideoToolbox
+    private var iosAudioOutputMode = IosAudioOutputMode.Auto
+    private var iosExtendedDynamicRangeEnabled = true
+    private var iosTargetColorspaceHintEnabled = true
+    private var iosHdrComputePeakEnabled = true
+    private var iosDebandEnabled = false
+    private var iosInterpolationEnabled = false
+    private var iosBrightness = 0
+    private var iosContrast = 0
+    private var iosSaturation = 0
+    private var iosGamma = 0
+    private var nvidiaRtxSuperResolutionEnabled = false
+    private var animeUpscalerOption = AnimeUpscalerOption.OFF
+    private var animeUpscalerEnabled = false
+    private var animeUpscalerMode = AnimeUpscalerMode.FAST
+    private var svpMotionOption = SvpMotionOption.OFF
+    private var playbackBufferPreset = PlaybackBufferPreset.MEDIUM
+    private var audioNightModeEnabled = false
+    private var showSeekbarWhileSeeking = true
+    private var showClockInPlayer = true
+    private var seekPreviewEnabled = true
+    private var seekPreviewWhileDragging = true
+    private var seekPreviewWhileHovering = true
+    private var seekPreviewWhileKeyboardSeeking = true
+    private var seekPreviewThumbnailCount = 5
+    private var seekrApiKey = ""
+    private var showRemainingTime = false
+    private var eyeFilterEnabled = false
+    private var eyeFilterColor = "#000000"
+    private var eyeFilterOpacity = 0.35f
+    private var playerUiScale = 100
+
+    fun ensureLoaded() {
+        if (hasLoaded) return
+        loadFromDisk()
+    }
+
+    fun onProfileChanged() {
+        loadFromDisk()
+    }
+
+    fun clearLocalState() {
+        hasLoaded = false
+        useLegacyPlayerLayout = false
+        playerUiMode = PlayerUiMode.CODEINE_XO
+        showLoadingOverlay = true
+        showPlayerLoadingStatus = true
+        pauseOverlayEnabled = true
+        showParentalGuide = true
+        resizeMode = PlayerResizeMode.Fit
+        holdToSpeedEnabled = true
+        holdToSpeedValue = 2f
+        touchGesturesEnabled = true
+        externalPlayerEnabled = false
+        externalPlayerForwardSubtitles = false
+        externalPlayerSendSkipSegments = false
+        externalPlayerId = ExternalPlayerPlatform.defaultPlayerId()
+        preferredAudioLanguage = AudioLanguageOption.DEVICE
+        secondaryPreferredAudioLanguage = null
+        preferredSubtitleLanguage = SubtitleLanguageOption.NONE
+        secondaryPreferredSubtitleLanguage = null
+        subtitleStyle = SubtitleStyleState.DEFAULT
+        streamReuseLastLinkEnabled = false
+        streamReuseLastLinkCacheHours = 24
+        androidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer
+        autoSwitchPlaybackEngineOnError = true
+        androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
+        androidLibmpvHardwareDecodingEnabled = true
+        androidLibmpvYuv420pEnabled = false
+        androidExoChaptersEnabled = isDesktop
+        rememberAudioDelayPerDevice = true
+        persistAudioAmplification = false
+        audioAmplificationDb = 0
+        downmixEnabled = false
+        audioOutputChannels = AudioOutputChannels.default
+        maintainOriginalAudioOnDownmix = true
+        centerMixLevelDb = 0
+        decoderPriority = 1
+        mapDV7ToHevc = false
+        tunnelingEnabled = false
+        exoNativeMemoryEnabled = false
+        bufferEngineEnabled = false
+        minBufferMs = PlaybackBufferSettings.DEFAULT_MIN_BUFFER_MS
+        maxBufferMs = PlaybackBufferSettings.DEFAULT_MAX_BUFFER_MS
+        bufferForPlaybackMs = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_MS
+        bufferForPlaybackAfterRebufferMs = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+        backBufferDurationMs = PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS
+        targetBufferSizeMb = PlaybackBufferSettings.DEFAULT_TARGET_BUFFER_MB
+        vodCacheEnabled = false
+        vodCacheSizeMode = VodCacheSizeMode.AUTO
+        vodCacheSizeMb = VodCacheSizing.DEFAULT_SIZE_MB
+        applyExoPlayerNativeMemory(false)
+        streamAutoPlayMode = StreamAutoPlayMode.MANUAL
+        streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
+        streamAutoPlaySelectedAddons = emptySet()
+        streamAutoPlaySelectedPlugins = emptySet()
+        streamAutoPlayRegex = ""
+        streamAutoPlayTimeoutSeconds = 3
+        skipIntroEnabled = true
+        autoSkipSegmentTypes = emptySet()
+        animeSkipEnabled = false
+        animeSkipClientId = ""
+        introDbApiKey = ""
+        introSubmitEnabled = false
+        streamAutoPlayNextEpisodeEnabled = false
+        streamAutoPlayNextEpisodeFallbackEnabled = true
+        streamAutoPlayPreferBingeGroup = true
+        streamAutoPlayReuseBingeGroup = false
+        nextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE
+        nextEpisodeThresholdPercent = 99f
+        nextEpisodeThresholdMinutesBeforeEnd = 2f
+        preloadNextEpisodeSources = false
+        useLibass = !isDesktop
+        libassRenderType = "OVERLAY_OPEN_GL"
+        libassRenderScale = "FULL"
+        libassRenderMode = "OVERLAY"
+        iosVideoOutputPreset = IosVideoOutputPreset.NativeEdr
+        iosToneMappingMode = IosToneMappingMode.Auto
+        iosTargetPrimaries = IosTargetPrimaries.Auto
+        iosTargetTransfer = IosTargetTransfer.Auto
+        iosHardwareDecoderMode = IosHardwareDecoderMode.VideoToolbox
+        iosAudioOutputMode = IosAudioOutputMode.Auto
+        iosExtendedDynamicRangeEnabled = true
+        iosTargetColorspaceHintEnabled = true
+        iosHdrComputePeakEnabled = true
+        iosDebandEnabled = false
+        iosInterpolationEnabled = false
+        iosBrightness = 0
+        iosContrast = 0
+        iosSaturation = 0
+        iosGamma = 0
+        nvidiaRtxSuperResolutionEnabled = false
+        animeUpscalerOption = AnimeUpscalerOption.OFF
+        animeUpscalerEnabled = false
+        animeUpscalerMode = AnimeUpscalerMode.FAST
+        svpMotionOption = SvpMotionOption.OFF
+        playbackBufferPreset = PlaybackBufferPreset.MEDIUM
+        audioNightModeEnabled = false
+        showSeekbarWhileSeeking = true
+        showClockInPlayer = true
+        seekPreviewEnabled = true
+        seekPreviewWhileDragging = true
+        seekPreviewWhileHovering = true
+        seekPreviewWhileKeyboardSeeking = true
+        seekPreviewThumbnailCount = 5
+        seekrApiKey = ""
+        showRemainingTime = false
+        eyeFilterEnabled = false
+        eyeFilterColor = "#000000"
+        eyeFilterOpacity = 0.35f
+        playerUiScale = 100
+        publish()
+    }
+
+    private fun loadFromDisk() {
+        hasLoaded = true
+        useLegacyPlayerLayout = PlayerSettingsStorage.loadUseLegacyPlayerLayout() ?: false
+        playerUiMode = PlayerUiMode.fromStorageKey(PlayerSettingsStorage.loadPlayerUiMode())
+        showLoadingOverlay = PlayerSettingsStorage.loadShowLoadingOverlay() ?: true
+        showPlayerLoadingStatus = PlayerSettingsStorage.loadShowPlayerLoadingStatus() ?: true
+        pauseOverlayEnabled = PlayerSettingsStorage.loadPauseOverlayEnabled() ?: true
+        showParentalGuide = PlayerSettingsStorage.loadShowParentalGuide() ?: true
+        resizeMode = PlayerSettingsStorage.loadResizeMode()
+            ?.let { runCatching { PlayerResizeMode.valueOf(it) }.getOrNull() }
+            ?: PlayerResizeMode.Fit
+        holdToSpeedEnabled = PlayerSettingsStorage.loadHoldToSpeedEnabled() ?: true
+        holdToSpeedValue = PlayerSettingsStorage.loadHoldToSpeedValue() ?: 2f
+        touchGesturesEnabled = PlayerSettingsStorage.loadTouchGesturesEnabled() ?: true
+        externalPlayerEnabled = if (AppFeaturePolicy.externalPlayerSupported) {
+            PlayerSettingsStorage.loadExternalPlayerEnabled() ?: false
+        } else {
+            false
+        }
+        externalPlayerForwardSubtitles = if (AppFeaturePolicy.externalPlayerSupported) {
+            PlayerSettingsStorage.loadExternalPlayerForwardSubtitles() ?: false
+        } else {
+            false
+        }
+        externalPlayerSendSkipSegments = PlayerSettingsStorage.loadExternalPlayerSendSkipSegments() ?: false
+        externalPlayerId = PlayerSettingsStorage.loadExternalPlayerId()
+            ?: ExternalPlayerPlatform.defaultPlayerId()
+        preferredAudioLanguage =
+            normalizeLanguageCode(PlayerSettingsStorage.loadPreferredAudioLanguage())
+                ?: AudioLanguageOption.DEVICE
+        secondaryPreferredAudioLanguage =
+            normalizeLanguageCode(PlayerSettingsStorage.loadSecondaryPreferredAudioLanguage())
+        preferredSubtitleLanguage =
+            normalizeLanguageCode(PlayerSettingsStorage.loadPreferredSubtitleLanguage())
+                ?: SubtitleLanguageOption.NONE
+        secondaryPreferredSubtitleLanguage =
+            normalizeLanguageCode(PlayerSettingsStorage.loadSecondaryPreferredSubtitleLanguage())
+        subtitleStyle = SubtitleStyleState(
+            textColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleTextColor())
+                ?: SubtitleStyleState.DEFAULT.textColor,
+            backgroundColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleBackgroundColor())
+                ?: SubtitleStyleState.DEFAULT.backgroundColor,
+            outlineColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleOutlineColor())
+                ?: SubtitleStyleState.DEFAULT.outlineColor,
+            outlineEnabled = PlayerSettingsStorage.loadSubtitleOutlineEnabled()
+                ?: SubtitleStyleState.DEFAULT.outlineEnabled,
+            outlineWidth = decodeSubtitleAppearance(PlayerSettingsStorage.loadSubtitleAppearance())
+                .resolveOutlineWidth(PlayerSettingsStorage.loadSubtitleOutlineWidth()),
+            outlineEffect = SubtitleOutlineEffect.fromId(PlayerSettingsStorage.loadSubtitleOutlineEffect()),
+            fontName = PlayerSettingsStorage.loadSubtitleFont() ?: SubtitleStyleState.DEFAULT.fontName,
+            importedFontId = decodeSubtitleAppearance(PlayerSettingsStorage.loadSubtitleAppearance()).fontId.takeIf { it.startsWith("custom-") },
+            bold = PlayerSettingsStorage.loadSubtitleBold()
+                ?: SubtitleStyleState.DEFAULT.bold,
+            fontSizeSp = (PlayerSettingsStorage.loadSubtitleFontSizeSp()
+                ?: SubtitleStyleState.DEFAULT.fontSizeSp).coerceIn(subtitleFontSizeRangeSp),
+            bottomOffset = PlayerSettingsStorage.loadSubtitleBottomOffset()
+                ?: SubtitleStyleState.DEFAULT.bottomOffset,
+            stripSdh = PlayerSettingsStorage.loadSubtitleStripSdh()
+                ?: SubtitleStyleState.DEFAULT.stripSdh,
+            useForcedSubtitles = PlayerSettingsStorage.loadSubtitleUseForcedSubtitles()
+                ?: SubtitleStyleState.DEFAULT.useForcedSubtitles,
+            showOnlyPreferredLanguages = PlayerSettingsStorage.loadSubtitleShowOnlyPreferredLanguages()
+                ?: SubtitleStyleState.DEFAULT.showOnlyPreferredLanguages,
+            appearance = decodeSubtitleAppearance(PlayerSettingsStorage.loadSubtitleAppearance()),
+        )
+        streamReuseLastLinkEnabled = PlayerSettingsStorage.loadStreamReuseLastLinkEnabled() ?: false
+        streamReuseLastLinkCacheHours = PlayerSettingsStorage.loadStreamReuseLastLinkCacheHours() ?: 24
+        androidPlaybackEngine = PlayerSettingsStorage.loadAndroidPlaybackEngine()
+            ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
+            ?: AndroidPlaybackEngine.ExoPlayer
+        autoSwitchPlaybackEngineOnError = PlayerSettingsStorage.loadAutoSwitchPlaybackEngineOnError() ?: true
+        androidLibmpvVideoOutput = PlayerSettingsStorage.loadAndroidLibmpvVideoOutput()
+            ?.let { runCatching { AndroidLibmpvVideoOutput.valueOf(it) }.getOrNull() }
+            ?: AndroidLibmpvVideoOutput.GpuNext
+        androidLibmpvHardwareDecodingEnabled = PlayerSettingsStorage.loadAndroidLibmpvHardwareDecodingEnabled() ?: true
+        androidLibmpvYuv420pEnabled = PlayerSettingsStorage.loadAndroidLibmpvYuv420pEnabled() ?: false
+        androidExoChaptersEnabled = PlayerSettingsStorage.loadAndroidExoChaptersEnabled() ?: isDesktop
+        rememberAudioDelayPerDevice = PlayerSettingsStorage.loadRememberAudioDelayPerDevice() ?: true
+        persistAudioAmplification = PlayerSettingsStorage.loadPersistAudioAmplification() ?: false
+        audioAmplificationDb = (PlayerSettingsStorage.loadAudioAmplificationDb() ?: 0)
+            .coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+        downmixEnabled = PlayerSettingsStorage.loadDownmixEnabled() ?: false
+        audioOutputChannels = AudioOutputChannels.fromSettingValue(PlayerSettingsStorage.loadAudioOutputChannels())
+        maintainOriginalAudioOnDownmix = PlayerSettingsStorage.loadMaintainOriginalAudioOnDownmix() ?: true
+        centerMixLevelDb = (PlayerSettingsStorage.loadCenterMixLevelDb() ?: 0)
+            .coerceIn(CENTER_MIX_LEVEL_MIN_DB, CENTER_MIX_LEVEL_MAX_DB)
+        decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
+        mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
+        tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
+        exoNativeMemoryEnabled = (PlayerSettingsStorage.loadExoNativeMemoryEnabled() ?: false) &&
+            isExoNativeMemorySupported()
+        vodCacheEnabled = PlayerSettingsStorage.loadVodCacheEnabled() ?: false
+        vodCacheSizeMode = PlayerSettingsStorage.loadVodCacheSizeMode()
+            ?.let { runCatching { VodCacheSizeMode.valueOf(it) }.getOrNull() }
+            ?: VodCacheSizeMode.AUTO
+        vodCacheSizeMb = (PlayerSettingsStorage.loadVodCacheSizeMb() ?: VodCacheSizing.DEFAULT_SIZE_MB)
+            .coerceIn(VodCacheSizing.MIN_SIZE_MB, VodCacheSizing.MAX_SIZE_MB)
+        applyExoPlayerNativeMemory(exoNativeMemoryEnabled)
+        bufferEngineEnabled = PlayerSettingsStorage.loadBufferEngineEnabled() ?: false
+        minBufferMs = PlayerSettingsStorage.loadMinBufferMs() ?: PlaybackBufferSettings.DEFAULT_MIN_BUFFER_MS
+        maxBufferMs = (PlayerSettingsStorage.loadMaxBufferMs() ?: PlaybackBufferSettings.DEFAULT_MAX_BUFFER_MS)
+            .coerceAtLeast(minBufferMs)
+        bufferForPlaybackMs = PlayerSettingsStorage.loadBufferForPlaybackMs()
+            ?: PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_MS
+        bufferForPlaybackAfterRebufferMs = PlayerSettingsStorage.loadBufferForPlaybackAfterRebufferMs()
+            ?: PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+        backBufferDurationMs = PlayerSettingsStorage.loadBackBufferDurationMs()
+            ?: PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS
+        targetBufferSizeMb = PlayerSettingsStorage.loadTargetBufferSizeMb()
+            ?: PlaybackBufferSettings.DEFAULT_TARGET_BUFFER_MB
+        streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
+            ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
+            ?: StreamAutoPlayMode.MANUAL
+        streamAutoPlaySource = PlayerSettingsStorage.loadStreamAutoPlaySource()
+            ?.let { runCatching { StreamAutoPlaySource.valueOf(it) }.getOrNull() }
+            ?: StreamAutoPlaySource.ALL_SOURCES
+        streamAutoPlaySelectedAddons = PlayerSettingsStorage.loadStreamAutoPlaySelectedAddons() ?: emptySet()
+        streamAutoPlaySelectedPlugins = PlayerSettingsStorage.loadStreamAutoPlaySelectedPlugins() ?: emptySet()
+        if (!AppFeaturePolicy.pluginsEnabled) {
+            val normalizedSource = normalizeStreamAutoPlaySource(streamAutoPlaySource)
+            if (normalizedSource != streamAutoPlaySource) {
+                streamAutoPlaySource = normalizedSource
+                PlayerSettingsStorage.saveStreamAutoPlaySource(normalizedSource.name)
+            }
+            if (streamAutoPlaySelectedPlugins.isNotEmpty()) {
+                streamAutoPlaySelectedPlugins = emptySet()
+                PlayerSettingsStorage.saveStreamAutoPlaySelectedPlugins(emptySet())
+            }
+        }
+        streamAutoPlayRegex = PlayerSettingsStorage.loadStreamAutoPlayRegex() ?: ""
+        streamAutoPlayTimeoutSeconds = PlayerSettingsStorage.loadStreamAutoPlayTimeoutSeconds() ?: 3
+        // Legacy migration: 11 was the old sentinel for "unlimited"
+        if (streamAutoPlayTimeoutSeconds == 11) {
+            streamAutoPlayTimeoutSeconds = Int.MAX_VALUE
+            PlayerSettingsStorage.saveStreamAutoPlayTimeoutSeconds(streamAutoPlayTimeoutSeconds)
+        } else if (streamAutoPlayTimeoutSeconds !in STREAM_AUTO_PLAY_TIMEOUT_VALUES) {
+            streamAutoPlayTimeoutSeconds = snapToAllowedTimeout(streamAutoPlayTimeoutSeconds)
+            PlayerSettingsStorage.saveStreamAutoPlayTimeoutSeconds(streamAutoPlayTimeoutSeconds)
+        }
+        skipIntroEnabled = PlayerSettingsStorage.loadSkipIntroEnabled() ?: true
+        autoSkipSegmentTypes = PlayerSettingsStorage.loadAutoSkipSegmentTypes()
+            ?.mapNotNull(AutoSkipSegmentType::fromStoredValue)?.toSet() ?: buildSet {
+                if (PlayerSettingsStorage.loadAutoSkipMovieCredits() == true) add(AutoSkipSegmentType.MOVIE_CREDITS)
+            }
+        animeSkipEnabled = PlayerSettingsStorage.loadAnimeSkipEnabled() ?: false
+        animeSkipClientId = PlayerSettingsStorage.loadAnimeSkipClientId() ?: ""
+        introDbApiKey = PlayerSettingsStorage.loadIntroDbApiKey() ?: ""
+        introSubmitEnabled = PlayerSettingsStorage.loadIntroSubmitEnabled() ?: false
+        streamAutoPlayNextEpisodeEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeEnabled() ?: false
+        streamAutoPlayNextEpisodeFallbackEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeFallbackEnabled() ?: true
+        streamAutoPlayPreferBingeGroup = PlayerSettingsStorage.loadStreamAutoPlayPreferBingeGroup() ?: true
+        streamAutoPlayReuseBingeGroup = PlayerSettingsStorage.loadStreamAutoPlayReuseBingeGroup() ?: false
+        nextEpisodeThresholdMode = PlayerSettingsStorage.loadNextEpisodeThresholdMode()
+            ?.let { runCatching { NextEpisodeThresholdMode.valueOf(it) }.getOrNull() }
+            ?: NextEpisodeThresholdMode.PERCENTAGE
+        nextEpisodeThresholdPercent = PlayerSettingsStorage.loadNextEpisodeThresholdPercent() ?: 99f
+        nextEpisodeThresholdMinutesBeforeEnd = PlayerSettingsStorage.loadNextEpisodeThresholdMinutesBeforeEnd() ?: 2f
+        preloadNextEpisodeSources = PlayerSettingsStorage.loadPreloadNextEpisodeSources() ?: false
+        useLibass = PlayerSettingsStorage.loadUseLibass() ?: !isDesktop
+        libassRenderType = PlayerSettingsStorage.loadLibassRenderType() ?: "CUES"
+        libassRenderScale = PlayerSettingsStorage.loadLibassRenderScale() ?: "FULL"
+        libassRenderMode = PlayerSettingsStorage.loadLibassRenderMode() ?: "OVERLAY"
+        iosVideoOutputPreset = PlayerSettingsStorage.loadIosVideoOutputPreset()
+            ?.let { runCatching { IosVideoOutputPreset.valueOf(it) }.getOrNull() }
+            ?: IosVideoOutputPreset.NativeEdr
+        iosToneMappingMode = PlayerSettingsStorage.loadIosToneMappingMode()
+            ?.let { runCatching { IosToneMappingMode.valueOf(it) }.getOrNull() }
+            ?: IosToneMappingMode.Auto
+        iosTargetPrimaries = PlayerSettingsStorage.loadIosTargetPrimaries()
+            ?.let { runCatching { IosTargetPrimaries.valueOf(it) }.getOrNull() }
+            ?: IosTargetPrimaries.Auto
+        iosTargetTransfer = PlayerSettingsStorage.loadIosTargetTransfer()
+            ?.let { runCatching { IosTargetTransfer.valueOf(it) }.getOrNull() }
+            ?: IosTargetTransfer.Auto
+        iosHardwareDecoderMode = PlayerSettingsStorage.loadIosHardwareDecoderMode()
+            ?.let { runCatching { IosHardwareDecoderMode.valueOf(it) }.getOrNull() }
+            ?: IosHardwareDecoderMode.VideoToolbox
+        iosAudioOutputMode = IosAudioOutputMode.fromStoredName(PlayerSettingsStorage.loadIosAudioOutputMode())
+        iosExtendedDynamicRangeEnabled = PlayerSettingsStorage.loadIosExtendedDynamicRangeEnabled() ?: true
+        iosTargetColorspaceHintEnabled = PlayerSettingsStorage.loadIosTargetColorspaceHintEnabled() ?: true
+        iosHdrComputePeakEnabled = PlayerSettingsStorage.loadIosHdrComputePeakEnabled() ?: true
+        iosDebandEnabled = PlayerSettingsStorage.loadIosDebandEnabled() ?: false
+        iosInterpolationEnabled = PlayerSettingsStorage.loadIosInterpolationEnabled() ?: false
+        iosBrightness = PlayerSettingsStorage.loadIosBrightness() ?: 0
+        iosContrast = PlayerSettingsStorage.loadIosContrast() ?: 0
+        iosSaturation = PlayerSettingsStorage.loadIosSaturation() ?: 0
+        iosGamma = PlayerSettingsStorage.loadIosGamma() ?: 0
+        nvidiaRtxSuperResolutionEnabled = PlayerSettingsStorage.loadNvidiaRtxSuperResolutionEnabled() ?: false
+        val storedUpscalerOption = PlayerSettingsStorage.loadAnimeUpscalerOption()
+        val legacyUpscalerEnabled = PlayerSettingsStorage.loadAnimeUpscalerEnabled()
+        animeUpscalerOption = when {
+            storedUpscalerOption != null -> AnimeUpscalerOption.fromStorageKey(storedUpscalerOption)
+            legacyUpscalerEnabled != null -> if (legacyUpscalerEnabled) AnimeUpscalerOption.ALWAYS_ON else AnimeUpscalerOption.OFF
+            else -> AnimeUpscalerOption.OFF
+        }
+        animeUpscalerEnabled = animeUpscalerOption.isEnabled
+        animeUpscalerMode = AnimeUpscalerMode.fromStorageKey(PlayerSettingsStorage.loadAnimeUpscalerMode())
+        svpMotionOption = SvpMotionOption.fromStorageKey(PlayerSettingsStorage.loadSvpMotionOption())
+        playbackBufferPreset = PlaybackBufferPreset.fromStorageKey(PlayerSettingsStorage.loadPlaybackBufferPreset())
+        audioNightModeEnabled = PlayerSettingsStorage.loadAudioNightModeEnabled() ?: false
+        showSeekbarWhileSeeking = PlayerSettingsStorage.loadShowSeekbarWhileSeeking() ?: true
+        showClockInPlayer = PlayerSettingsStorage.loadShowClockInPlayer() ?: true
+        seekPreviewEnabled = PlayerSettingsStorage.loadSeekPreviewEnabled() ?: true
+        seekPreviewWhileDragging = PlayerSettingsStorage.loadSeekPreviewWhileDragging() ?: true
+        seekPreviewWhileHovering = PlayerSettingsStorage.loadSeekPreviewWhileHovering() ?: true
+        seekPreviewWhileKeyboardSeeking = PlayerSettingsStorage.loadSeekPreviewWhileKeyboardSeeking() ?: true
+        seekPreviewThumbnailCount = PlayerSettingsStorage.loadSeekPreviewThumbnailCount()?.takeIf { it in listOf(1, 3, 5) } ?: 5
+        seekrApiKey = PlayerSettingsStorage.loadSeekrApiKey() ?: ""
+        showRemainingTime = PlayerSettingsStorage.loadShowRemainingTime() ?: false
+        eyeFilterEnabled = PlayerSettingsStorage.loadEyeFilterEnabled() ?: false
+        eyeFilterColor = PlayerSettingsStorage.loadEyeFilterColor() ?: "#000000"
+        eyeFilterOpacity = PlayerSettingsStorage.loadEyeFilterOpacity()?.coerceIn(0.10f, 0.80f) ?: 0.35f
+        playerUiScale = PlayerSettingsStorage.loadPlayerUiScale()?.coerceIn(50, 150) ?: 100
+        publish()
+    }
+
+    fun setUseLegacyPlayerLayout(enabled: Boolean) {
+        ensureLoaded()
+        if (useLegacyPlayerLayout == enabled) return
+        useLegacyPlayerLayout = enabled
+        publish()
+        PlayerSettingsStorage.saveUseLegacyPlayerLayout(enabled)
+    }
+
+    fun setPlayerUiMode(mode: PlayerUiMode) {
+        ensureLoaded()
+        if (playerUiMode == mode) {
+            PlayerSettingsStorage.savePlayerUiMode(mode.storageKey)
+            return
+        }
+        playerUiMode = mode
+        publish()
+        PlayerSettingsStorage.savePlayerUiMode(mode.storageKey)
+    }
+
+    fun setShowLoadingOverlay(enabled: Boolean) {
+        ensureLoaded()
+        if (showLoadingOverlay == enabled) return
+        showLoadingOverlay = enabled
+        publish()
+        PlayerSettingsStorage.saveShowLoadingOverlay(enabled)
+    }
+
+    fun setShowPlayerLoadingStatus(enabled: Boolean) {
+        ensureLoaded()
+        if (showPlayerLoadingStatus == enabled) return
+        showPlayerLoadingStatus = enabled
+        publish()
+        PlayerSettingsStorage.saveShowPlayerLoadingStatus(enabled)
+    }
+
+    fun setPauseOverlayEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (pauseOverlayEnabled == enabled) return
+        pauseOverlayEnabled = enabled
+        publish()
+        PlayerSettingsStorage.savePauseOverlayEnabled(enabled)
+    }
+
+    fun setShowParentalGuide(enabled: Boolean) {
+        ensureLoaded()
+        if (showParentalGuide == enabled) return
+        showParentalGuide = enabled
+        publish()
+        PlayerSettingsStorage.saveShowParentalGuide(enabled)
+    }
+
+    fun setResizeMode(mode: PlayerResizeMode) {
+        ensureLoaded()
+        if (resizeMode == mode) return
+        resizeMode = mode
+        publish()
+        PlayerSettingsStorage.saveResizeMode(mode.name)
+    }
+
+    fun setHoldToSpeedEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (holdToSpeedEnabled == enabled) return
+        holdToSpeedEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveHoldToSpeedEnabled(enabled)
+    }
+
+    fun setHoldToSpeedValue(speed: Float) {
+        ensureLoaded()
+        val normalized = speed.coerceIn(1f, 4f)
+        if (holdToSpeedValue == normalized) return
+        holdToSpeedValue = normalized
+        publish()
+        PlayerSettingsStorage.saveHoldToSpeedValue(normalized)
+    }
+
+    fun setTouchGesturesEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (touchGesturesEnabled == enabled) return
+        touchGesturesEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveTouchGesturesEnabled(enabled)
+    }
+
+    fun setExternalPlayerEnabled(enabled: Boolean) {
+        ensureLoaded()
+        val normalizedEnabled = enabled && AppFeaturePolicy.externalPlayerSupported
+        if (normalizedEnabled && externalPlayerId.isNullOrBlank()) {
+            externalPlayerId = ExternalPlayerPlatform.defaultPlayerId()
+                ?: ExternalPlayerPlatform.availablePlayers().firstOrNull()?.id
+            PlayerSettingsStorage.saveExternalPlayerId(externalPlayerId)
+        }
+        if (externalPlayerEnabled == normalizedEnabled) {
+            publish()
+            return
+        }
+        externalPlayerEnabled = normalizedEnabled
+        publish()
+        if (AppFeaturePolicy.externalPlayerSupported) {
+            PlayerSettingsStorage.saveExternalPlayerEnabled(normalizedEnabled)
+        }
+    }
+
+    fun setExternalPlayerId(playerId: String?) {
+        ensureLoaded()
+        val normalized = playerId?.takeIf { it.isNotBlank() }
+        if (externalPlayerId == normalized) return
+        externalPlayerId = normalized
+        publish()
+        PlayerSettingsStorage.saveExternalPlayerId(normalized)
+    }
+
+    fun setExternalPlayerForwardSubtitles(enabled: Boolean) {
+        ensureLoaded()
+        val normalizedEnabled = enabled && AppFeaturePolicy.externalPlayerSupported
+        if (externalPlayerForwardSubtitles == normalizedEnabled) return
+        externalPlayerForwardSubtitles = normalizedEnabled
+        publish()
+        if (AppFeaturePolicy.externalPlayerSupported) {
+            PlayerSettingsStorage.saveExternalPlayerForwardSubtitles(normalizedEnabled)
+        }
+    }
+
+    fun setExternalPlayerSendSkipSegments(enabled: Boolean) {
+        ensureLoaded()
+        if (externalPlayerSendSkipSegments == enabled) return
+        externalPlayerSendSkipSegments = enabled
+        publish()
+        PlayerSettingsStorage.saveExternalPlayerSendSkipSegments(enabled)
+    }
+
+    fun setPreferredAudioLanguage(language: String) {
+        ensureLoaded()
+        val normalized = normalizeLanguageCode(language) ?: AudioLanguageOption.DEVICE
+        if (preferredAudioLanguage == normalized) return
+        preferredAudioLanguage = normalized
+        publish()
+        PlayerSettingsStorage.savePreferredAudioLanguage(normalized)
+    }
+
+    fun setSecondaryPreferredAudioLanguage(language: String?) {
+        ensureLoaded()
+        val normalized = normalizeLanguageCode(language)
+        if (secondaryPreferredAudioLanguage == normalized) return
+        secondaryPreferredAudioLanguage = normalized
+        publish()
+        PlayerSettingsStorage.saveSecondaryPreferredAudioLanguage(normalized)
+    }
+
+    fun setPreferredSubtitleLanguage(language: String) {
+        ensureLoaded()
+        val normalized = normalizeLanguageCode(language) ?: SubtitleLanguageOption.NONE
+        if (preferredSubtitleLanguage == normalized) return
+        preferredSubtitleLanguage = normalized
+        publish()
+        PlayerSettingsStorage.savePreferredSubtitleLanguage(normalized)
+    }
+
+    fun setSecondaryPreferredSubtitleLanguage(language: String?) {
+        ensureLoaded()
+        val normalized = normalizeLanguageCode(language)
+        if (secondaryPreferredSubtitleLanguage == normalized) return
+        secondaryPreferredSubtitleLanguage = normalized
+        publish()
+        PlayerSettingsStorage.saveSecondaryPreferredSubtitleLanguage(normalized)
+    }
+
+    fun setSubtitleStyle(style: SubtitleStyleState) {
+        ensureLoaded()
+        // Changing the effect re-derives whether an outline is wanted. Without
+        // this, switching to Background Box or None leaves outlineEnabled
+        // false, and every later effect that needs a stroke inherits that stale
+        // flag and renders as bare text.
+        val outlineEnabled = if (style.outlineEffect != subtitleStyle.outlineEffect) {
+            style.outlineEffect.needsOutline
+        } else {
+            style.outlineEnabled
+        }
+        val normalized = style.copy(
+            outlineWidth = normalizeSubtitleOutlineWidth(style.outlineWidth),
+            fontSizeSp = style.fontSizeSp.coerceIn(subtitleFontSizeRangeSp),
+            outlineEnabled = outlineEnabled,
+            bottomOffset = style.bottomOffset.coerceIn(0, 200),
+            appearance = style.appearanceForStorage(),
+        )
+        if (subtitleStyle == normalized) return
+        subtitleStyle = normalized
+        publish()
+        PlayerSettingsStorage.saveSubtitleTextColor(normalized.textColor.toStorageHexString())
+        PlayerSettingsStorage.saveSubtitleBackgroundColor(normalized.backgroundColor.toStorageHexString())
+        PlayerSettingsStorage.saveSubtitleAppearance(normalized.appearanceForStorage().encode())
+        PlayerSettingsStorage.saveSubtitleOutlineColor(normalized.outlineColor.toStorageHexString())
+        PlayerSettingsStorage.saveSubtitleOutlineEnabled(normalized.outlineEnabled)
+        PlayerSettingsStorage.saveSubtitleOutlineWidth(normalized.outlineWidth.toInt().coerceAtLeast(1))
+        PlayerSettingsStorage.saveSubtitleOutlineEffect(normalized.outlineEffect.id)
+        PlayerSettingsStorage.saveSubtitleFont(normalized.fontName)
+        PlayerSettingsStorage.saveSubtitleBold(normalized.bold)
+        PlayerSettingsStorage.saveSubtitleFontSizeSp(normalized.fontSizeSp)
+        PlayerSettingsStorage.saveSubtitleBottomOffset(normalized.bottomOffset)
+        PlayerSettingsStorage.saveSubtitleStripSdh(normalized.stripSdh)
+        PlayerSettingsStorage.saveSubtitleUseForcedSubtitles(normalized.useForcedSubtitles)
+        PlayerSettingsStorage.saveSubtitleShowOnlyPreferredLanguages(normalized.showOnlyPreferredLanguages)
+    }
+
+    fun setStreamReuseLastLinkEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (streamReuseLastLinkEnabled == enabled) return
+        streamReuseLastLinkEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveStreamReuseLastLinkEnabled(enabled)
+    }
+
+    fun setStreamReuseLastLinkCacheHours(hours: Int) {
+        ensureLoaded()
+        if (streamReuseLastLinkCacheHours == hours) return
+        streamReuseLastLinkCacheHours = hours
+        publish()
+        PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(hours)
+    }
+
+    fun setAndroidPlaybackEngine(engine: AndroidPlaybackEngine) {
+        ensureLoaded()
+        if (androidPlaybackEngine == engine) return
+        androidPlaybackEngine = engine
+        publish()
+        PlayerSettingsStorage.saveAndroidPlaybackEngine(engine.name)
+    }
+
+    fun setAutoSwitchPlaybackEngineOnError(enabled: Boolean) {
+        ensureLoaded()
+        if (autoSwitchPlaybackEngineOnError == enabled) return
+        autoSwitchPlaybackEngineOnError = enabled
+        publish()
+        PlayerSettingsStorage.saveAutoSwitchPlaybackEngineOnError(enabled)
+    }
+
+    fun setAndroidLibmpvVideoOutput(output: AndroidLibmpvVideoOutput) {
+        ensureLoaded()
+        if (androidLibmpvVideoOutput == output) return
+        androidLibmpvVideoOutput = output
+        publish()
+        PlayerSettingsStorage.saveAndroidLibmpvVideoOutput(output.name)
+    }
+
+    fun setAndroidLibmpvHardwareDecodingEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (androidLibmpvHardwareDecodingEnabled == enabled) return
+        androidLibmpvHardwareDecodingEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAndroidLibmpvHardwareDecodingEnabled(enabled)
+    }
+
+    fun setAndroidLibmpvYuv420pEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (androidLibmpvYuv420pEnabled == enabled) return
+        androidLibmpvYuv420pEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAndroidLibmpvYuv420pEnabled(enabled)
+    }
+
+    fun setAndroidExoChaptersEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (androidExoChaptersEnabled == enabled) return
+        androidExoChaptersEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAndroidExoChaptersEnabled(enabled)
+    }
+
+    fun setRememberAudioDelayPerDevice(enabled: Boolean) {
+        ensureLoaded()
+        if (rememberAudioDelayPerDevice == enabled) return
+        rememberAudioDelayPerDevice = enabled
+        publish()
+        PlayerSettingsStorage.saveRememberAudioDelayPerDevice(enabled)
+    }
+
+    fun setPersistAudioAmplification(enabled: Boolean) {
+        ensureLoaded()
+        if (persistAudioAmplification == enabled) return
+        persistAudioAmplification = enabled
+        publish()
+        PlayerSettingsStorage.savePersistAudioAmplification(enabled)
+    }
+
+    fun setAudioAmplificationDb(db: Int) {
+        ensureLoaded()
+        val clamped = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+        if (audioAmplificationDb == clamped) return
+        audioAmplificationDb = clamped
+        publish()
+        PlayerSettingsStorage.saveAudioAmplificationDb(clamped)
+    }
+
+    fun setDownmixEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (downmixEnabled == enabled) return
+        downmixEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveDownmixEnabled(enabled)
+    }
+
+    fun setAudioOutputChannels(channels: AudioOutputChannels) {
+        ensureLoaded()
+        if (audioOutputChannels == channels) return
+        audioOutputChannels = channels
+        publish()
+        PlayerSettingsStorage.saveAudioOutputChannels(channels.settingValue)
+    }
+
+    fun setMaintainOriginalAudioOnDownmix(enabled: Boolean) {
+        ensureLoaded()
+        if (maintainOriginalAudioOnDownmix == enabled) return
+        maintainOriginalAudioOnDownmix = enabled
+        publish()
+        PlayerSettingsStorage.saveMaintainOriginalAudioOnDownmix(enabled)
+    }
+
+    fun setCenterMixLevelDb(db: Int) {
+        ensureLoaded()
+        val clamped = db.coerceIn(CENTER_MIX_LEVEL_MIN_DB, CENTER_MIX_LEVEL_MAX_DB)
+        if (centerMixLevelDb == clamped) return
+        centerMixLevelDb = clamped
+        publish()
+        PlayerSettingsStorage.saveCenterMixLevelDb(clamped)
+    }
+
+    fun setDecoderPriority(priority: Int) {
+        ensureLoaded()
+        if (decoderPriority == priority) return
+        decoderPriority = priority
+        publish()
+        PlayerSettingsStorage.saveDecoderPriority(priority)
+    }
+
+    fun setMapDV7ToHevc(enabled: Boolean) {
+        ensureLoaded()
+        if (mapDV7ToHevc == enabled) return
+        mapDV7ToHevc = enabled
+        publish()
+        PlayerSettingsStorage.saveMapDV7ToHevc(enabled)
+    }
+
+    fun setTunnelingEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (tunnelingEnabled == enabled) return
+        tunnelingEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveTunnelingEnabled(enabled)
+    }
+
+    fun setExoNativeMemoryEnabled(enabled: Boolean) {
+        ensureLoaded()
+        val supported = enabled && isExoNativeMemorySupported()
+        if (exoNativeMemoryEnabled == supported) return
+        exoNativeMemoryEnabled = supported
+        resetBufferSettingsToDefaults()
+        applyExoPlayerNativeMemory(supported)
+        publish()
+        PlayerSettingsStorage.saveExoNativeMemoryEnabled(supported)
+    }
+
+    private fun resetBufferSettingsToDefaults() {
+        minBufferMs = PlaybackBufferSettings.DEFAULT_MIN_BUFFER_MS
+        maxBufferMs = PlaybackBufferSettings.DEFAULT_MAX_BUFFER_MS
+        bufferForPlaybackMs = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_MS
+        bufferForPlaybackAfterRebufferMs = PlaybackBufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+        backBufferDurationMs = PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS
+        targetBufferSizeMb = PlaybackBufferSettings.DEFAULT_TARGET_BUFFER_MB
+        PlayerSettingsStorage.saveMinBufferMs(minBufferMs)
+        PlayerSettingsStorage.saveMaxBufferMs(maxBufferMs)
+        PlayerSettingsStorage.saveBufferForPlaybackMs(bufferForPlaybackMs)
+        PlayerSettingsStorage.saveBufferForPlaybackAfterRebufferMs(bufferForPlaybackAfterRebufferMs)
+        PlayerSettingsStorage.saveBackBufferDurationMs(backBufferDurationMs)
+        PlayerSettingsStorage.saveTargetBufferSizeMb(targetBufferSizeMb)
+    }
+
+    fun setBufferEngineEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (bufferEngineEnabled == enabled) return
+        bufferEngineEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveBufferEngineEnabled(enabled)
+    }
+
+    fun setMinBufferMs(value: Int) {
+        ensureLoaded()
+        val coerced = value.coerceAtLeast(PlaybackBufferSettings.MIN_DURATION_SEC * 1_000)
+        if (minBufferMs == coerced && maxBufferMs >= coerced) return
+        minBufferMs = coerced
+        if (maxBufferMs < coerced) {
+            maxBufferMs = coerced
+            PlayerSettingsStorage.saveMaxBufferMs(coerced)
+        }
+        publish()
+        PlayerSettingsStorage.saveMinBufferMs(coerced)
+    }
+
+    fun setMaxBufferMs(value: Int) {
+        ensureLoaded()
+        val coerced = value.coerceAtLeast(minBufferMs)
+        if (maxBufferMs == coerced) return
+        maxBufferMs = coerced
+        publish()
+        PlayerSettingsStorage.saveMaxBufferMs(coerced)
+    }
+
+    fun setBufferForPlaybackMs(value: Int) {
+        ensureLoaded()
+        val coerced = value.coerceIn(
+            PlaybackBufferSettings.MIN_START_SEC * 1_000,
+            PlaybackBufferSettings.MAX_START_SEC * 1_000,
+        )
+        if (bufferForPlaybackMs == coerced) return
+        bufferForPlaybackMs = coerced
+        publish()
+        PlayerSettingsStorage.saveBufferForPlaybackMs(coerced)
+    }
+
+    fun setBufferForPlaybackAfterRebufferMs(value: Int) {
+        ensureLoaded()
+        val coerced = value.coerceIn(
+            PlaybackBufferSettings.MIN_START_SEC * 1_000,
+            PlaybackBufferSettings.MAX_REBUFFER_SEC * 1_000,
+        )
+        if (bufferForPlaybackAfterRebufferMs == coerced) return
+        bufferForPlaybackAfterRebufferMs = coerced
+        publish()
+        PlayerSettingsStorage.saveBufferForPlaybackAfterRebufferMs(coerced)
+    }
+
+    fun setBackBufferDurationMs(value: Int) {
+        ensureLoaded()
+        val coerced = value.coerceIn(0, PlaybackBufferSettings.MAX_BACK_SEC * 1_000)
+        if (backBufferDurationMs == coerced) return
+        backBufferDurationMs = coerced
+        publish()
+        PlayerSettingsStorage.saveBackBufferDurationMs(coerced)
+    }
+
+    fun setTargetBufferSizeMb(value: Int) {
+        ensureLoaded()
+        val coerced = value.coerceAtLeast(PlaybackBufferSettings.MIN_TARGET_MB)
+        if (targetBufferSizeMb == coerced) return
+        targetBufferSizeMb = coerced
+        publish()
+        PlayerSettingsStorage.saveTargetBufferSizeMb(coerced)
+    }
+
+    fun setVodCacheEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (vodCacheEnabled == enabled) return
+        vodCacheEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveVodCacheEnabled(enabled)
+    }
+
+    fun setVodCacheSizeMode(mode: VodCacheSizeMode) {
+        ensureLoaded()
+        if (vodCacheSizeMode == mode) return
+        vodCacheSizeMode = mode
+        publish()
+        PlayerSettingsStorage.saveVodCacheSizeMode(mode.name)
+    }
+
+    fun setVodCacheSizeMb(sizeMb: Int) {
+        ensureLoaded()
+        val coerced = sizeMb.coerceIn(VodCacheSizing.MIN_SIZE_MB, VodCacheSizing.MAX_SIZE_MB)
+        if (vodCacheSizeMb == coerced) return
+        vodCacheSizeMb = coerced
+        publish()
+        PlayerSettingsStorage.saveVodCacheSizeMb(coerced)
+    }
+
+    fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
+        ensureLoaded()
+        if (streamAutoPlayMode == mode) return
+        streamAutoPlayMode = mode
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayMode(mode.name)
+    }
+
+    fun setStreamAutoPlaySource(source: StreamAutoPlaySource) {
+        ensureLoaded()
+        val normalizedSource = normalizeStreamAutoPlaySource(source)
+        if (streamAutoPlaySource == normalizedSource) return
+        streamAutoPlaySource = normalizedSource
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlaySource(normalizedSource.name)
+    }
+
+    fun setStreamAutoPlaySelectedAddons(addons: Set<String>) {
+        ensureLoaded()
+        if (streamAutoPlaySelectedAddons == addons) return
+        streamAutoPlaySelectedAddons = addons
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlaySelectedAddons(addons)
+    }
+
+    fun setStreamAutoPlaySelectedPlugins(plugins: Set<String>) {
+        ensureLoaded()
+        val normalizedPlugins = if (AppFeaturePolicy.pluginsEnabled) plugins else emptySet()
+        if (streamAutoPlaySelectedPlugins == normalizedPlugins) return
+        streamAutoPlaySelectedPlugins = normalizedPlugins
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlaySelectedPlugins(normalizedPlugins)
+    }
+
+    fun setStreamAutoPlayRegex(regex: String) {
+        ensureLoaded()
+        if (streamAutoPlayRegex == regex) return
+        streamAutoPlayRegex = regex
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayRegex(regex)
+    }
+
+    fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
+        ensureLoaded()
+        if (streamAutoPlayTimeoutSeconds == seconds) return
+        streamAutoPlayTimeoutSeconds = seconds
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayTimeoutSeconds(seconds)
+    }
+
+    fun setSkipIntroEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (skipIntroEnabled == enabled) return
+        skipIntroEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveSkipIntroEnabled(enabled)
+    }
+
+    fun setAutoSkipSegmentTypeEnabled(segmentType: AutoSkipSegmentType, enabled: Boolean) {
+        ensureLoaded()
+        val updated = if (enabled) autoSkipSegmentTypes + segmentType else autoSkipSegmentTypes - segmentType
+        if (autoSkipSegmentTypes == updated) return
+        autoSkipSegmentTypes = updated
+        publish()
+        PlayerSettingsStorage.saveAutoSkipSegmentTypes(updated.mapTo(linkedSetOf()) { it.storedValue })
+    }
+
+    fun setAnimeSkipEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (animeSkipEnabled == enabled) return
+        animeSkipEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAnimeSkipEnabled(enabled)
+    }
+
+    fun setAnimeSkipClientId(clientId: String) {
+        ensureLoaded()
+        if (animeSkipClientId == clientId) return
+        animeSkipClientId = clientId
+        publish()
+        PlayerSettingsStorage.saveAnimeSkipClientId(clientId)
+    }
+
+    fun setIntroDbApiKey(apiKey: String) {
+        ensureLoaded()
+        if (introDbApiKey == apiKey) return
+        introDbApiKey = apiKey
+        publish()
+        PlayerSettingsStorage.saveIntroDbApiKey(apiKey)
+    }
+
+    fun setIntroSubmitEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (introSubmitEnabled == enabled) return
+        introSubmitEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveIntroSubmitEnabled(enabled)
+    }
+
+    fun setStreamAutoPlayNextEpisodeEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (streamAutoPlayNextEpisodeEnabled == enabled) return
+        streamAutoPlayNextEpisodeEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayNextEpisodeEnabled(enabled)
+    }
+
+    fun setStreamAutoPlayNextEpisodeFallbackEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (streamAutoPlayNextEpisodeFallbackEnabled == enabled) return
+        streamAutoPlayNextEpisodeFallbackEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayNextEpisodeFallbackEnabled(enabled)
+    }
+
+    fun setStreamAutoPlayPreferBingeGroup(enabled: Boolean) {
+        ensureLoaded()
+        if (streamAutoPlayPreferBingeGroup == enabled) return
+        streamAutoPlayPreferBingeGroup = enabled
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayPreferBingeGroup(enabled)
+    }
+
+    fun setStreamAutoPlayReuseBingeGroup(enabled: Boolean) {
+        ensureLoaded()
+        if (streamAutoPlayReuseBingeGroup == enabled) return
+        streamAutoPlayReuseBingeGroup = enabled
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayReuseBingeGroup(enabled)
+    }
+
+    fun setNextEpisodeThresholdMode(mode: NextEpisodeThresholdMode) {
+        ensureLoaded()
+        if (nextEpisodeThresholdMode == mode) return
+        nextEpisodeThresholdMode = mode
+        publish()
+        PlayerSettingsStorage.saveNextEpisodeThresholdMode(mode.name)
+    }
+
+    fun setNextEpisodeThresholdPercent(percent: Float) {
+        ensureLoaded()
+        if (nextEpisodeThresholdPercent == percent) return
+        nextEpisodeThresholdPercent = percent
+        publish()
+        PlayerSettingsStorage.saveNextEpisodeThresholdPercent(percent)
+    }
+
+    fun setNextEpisodeThresholdMinutesBeforeEnd(minutes: Float) {
+        ensureLoaded()
+        if (nextEpisodeThresholdMinutesBeforeEnd == minutes) return
+        nextEpisodeThresholdMinutesBeforeEnd = minutes
+        publish()
+        PlayerSettingsStorage.saveNextEpisodeThresholdMinutesBeforeEnd(minutes)
+    }
+
+    fun setPreloadNextEpisodeSources(enabled: Boolean) {
+        ensureLoaded()
+        if (preloadNextEpisodeSources == enabled) return
+        preloadNextEpisodeSources = enabled
+        publish()
+        PlayerSettingsStorage.savePreloadNextEpisodeSources(enabled)
+    }
+
+    fun setUseLibass(enabled: Boolean) {
+        ensureLoaded()
+        if (useLibass == enabled) return
+        useLibass = enabled
+        publish()
+        PlayerSettingsStorage.saveUseLibass(enabled)
+    }
+
+    fun setNvidiaRtxSuperResolutionEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (nvidiaRtxSuperResolutionEnabled == enabled) return
+        nvidiaRtxSuperResolutionEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveNvidiaRtxSuperResolutionEnabled(enabled)
+    }
+
+    fun setAnimeUpscalerOption(option: AnimeUpscalerOption) {
+        ensureLoaded()
+        if (animeUpscalerOption == option) return
+        animeUpscalerOption = option
+        animeUpscalerEnabled = option.isEnabled
+        publish()
+        PlayerSettingsStorage.saveAnimeUpscalerOption(option.storageKey)
+        PlayerSettingsStorage.saveAnimeUpscalerEnabled(animeUpscalerEnabled)
+    }
+
+    fun setAnimeUpscalerEnabled(enabled: Boolean) {
+        setAnimeUpscalerOption(if (enabled) AnimeUpscalerOption.ALWAYS_ON else AnimeUpscalerOption.OFF)
+    }
+
+    fun setAnimeUpscalerMode(mode: AnimeUpscalerMode) {
+        ensureLoaded()
+        if (animeUpscalerMode == mode) return
+        animeUpscalerMode = mode
+        publish()
+        PlayerSettingsStorage.saveAnimeUpscalerMode(mode.storageKey)
+    }
+
+    fun setSvpMotionOption(option: SvpMotionOption) {
+        ensureLoaded()
+        if (svpMotionOption == option) return
+        svpMotionOption = option
+        publish()
+        PlayerSettingsStorage.saveSvpMotionOption(option.storageKey)
+    }
+
+    fun setPlaybackBufferPreset(preset: PlaybackBufferPreset) {
+        ensureLoaded()
+        if (playbackBufferPreset == preset) return
+        playbackBufferPreset = preset
+        PlayerSettingsStorage.savePlaybackBufferPreset(preset.storageKey)
+        publish()
+    }
+
+    fun setAudioNightModeEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (audioNightModeEnabled == enabled) return
+        audioNightModeEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAudioNightModeEnabled(enabled)
+    }
+
+    fun setShowSeekbarWhileSeeking(enabled: Boolean) {
+        ensureLoaded()
+        if (showSeekbarWhileSeeking == enabled) return
+        showSeekbarWhileSeeking = enabled
+        publish()
+        PlayerSettingsStorage.saveShowSeekbarWhileSeeking(enabled)
+    }
+
+    fun setShowClockInPlayer(enabled: Boolean) {
+        ensureLoaded()
+        if (showClockInPlayer == enabled) return
+        showClockInPlayer = enabled
+        publish()
+        PlayerSettingsStorage.saveShowClockInPlayer(enabled)
+    }
+
+    fun setSeekPreviewEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (seekPreviewEnabled == enabled) return
+        seekPreviewEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveSeekPreviewEnabled(enabled)
+    }
+
+    fun setSeekPreviewWhileDragging(value: Boolean) {
+        ensureLoaded()
+        val normalized = value
+        if (seekPreviewWhileDragging == normalized) return
+        seekPreviewWhileDragging = normalized
+        publish()
+        PlayerSettingsStorage.saveSeekPreviewWhileDragging(normalized)
+    }
+
+    fun setSeekPreviewWhileHovering(value: Boolean) {
+        ensureLoaded()
+        val normalized = value
+        if (seekPreviewWhileHovering == normalized) return
+        seekPreviewWhileHovering = normalized
+        publish()
+        PlayerSettingsStorage.saveSeekPreviewWhileHovering(normalized)
+    }
+
+    fun setSeekPreviewWhileKeyboardSeeking(value: Boolean) {
+        ensureLoaded()
+        val normalized = value
+        if (seekPreviewWhileKeyboardSeeking == normalized) return
+        seekPreviewWhileKeyboardSeeking = normalized
+        publish()
+        PlayerSettingsStorage.saveSeekPreviewWhileKeyboardSeeking(normalized)
+    }
+
+    fun setSeekPreviewThumbnailCount(value: Int) {
+        ensureLoaded()
+        val normalized = value.takeIf { it in listOf(1, 3, 5) } ?: 5
+        if (seekPreviewThumbnailCount == normalized) return
+        seekPreviewThumbnailCount = normalized
+        publish()
+        PlayerSettingsStorage.saveSeekPreviewThumbnailCount(normalized)
+    }
+
+    fun setSeekrApiKey(apiKey: String) {
+        ensureLoaded()
+        val trimmed = apiKey.trim()
+        if (seekrApiKey == trimmed) return
+        seekrApiKey = trimmed
+        publish()
+        PlayerSettingsStorage.saveSeekrApiKey(trimmed)
+    }
+
+    fun setShowRemainingTime(enabled: Boolean) {
+        ensureLoaded()
+        if (showRemainingTime == enabled) return
+        showRemainingTime = enabled
+        publish()
+        PlayerSettingsStorage.saveShowRemainingTime(enabled)
+    }
+
+    fun setEyeFilterEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (eyeFilterEnabled == enabled) return
+        eyeFilterEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveEyeFilterEnabled(enabled)
+    }
+
+    fun setEyeFilterColor(color: String) {
+        ensureLoaded()
+        val normalized = color.trim().ifEmpty { "#000000" }
+        if (eyeFilterColor == normalized) return
+        eyeFilterColor = normalized
+        publish()
+        PlayerSettingsStorage.saveEyeFilterColor(normalized)
+    }
+
+    fun setEyeFilterOpacity(opacity: Float) {
+        ensureLoaded()
+        val clamped = opacity.coerceIn(0.10f, 0.80f)
+        if (eyeFilterOpacity == clamped) return
+        eyeFilterOpacity = clamped
+        publish()
+        PlayerSettingsStorage.saveEyeFilterOpacity(clamped)
+    }
+
+    fun setPlayerUiScale(scale: Int) {
+        ensureLoaded()
+        val clamped = scale.coerceIn(50, 150)
+        if (playerUiScale == clamped) return
+        playerUiScale = clamped
+        publish()
+        PlayerSettingsStorage.savePlayerUiScale(clamped)
+    }
+
+    fun stepPlayerUiScale(delta: Int) {
+        ensureLoaded()
+        setPlayerUiScale(playerUiScale + delta)
+    }
+
+    fun setLibassRenderType(renderType: String) {
+        ensureLoaded()
+        if (libassRenderType == renderType) return
+        libassRenderType = renderType
+        publish()
+        PlayerSettingsStorage.saveLibassRenderType(renderType)
+    }
+
+    fun setLibassRenderScale(scale: String) {
+        ensureLoaded()
+        if (libassRenderScale == scale) return
+        libassRenderScale = scale
+        publish()
+        PlayerSettingsStorage.saveLibassRenderScale(scale)
+    }
+
+    fun setLibassRenderMode(mode: String) {
+        ensureLoaded()
+        if (libassRenderMode == mode) return
+        libassRenderMode = mode
+        publish()
+        PlayerSettingsStorage.saveLibassRenderMode(mode)
+    }
+
+    fun setIosVideoOutputPreset(preset: IosVideoOutputPreset) {
+        ensureLoaded()
+        iosVideoOutputPreset = preset
+        when (preset) {
+            IosVideoOutputPreset.NativeEdr -> {
+                iosExtendedDynamicRangeEnabled = true
+                iosTargetColorspaceHintEnabled = true
+                iosHdrComputePeakEnabled = true
+                iosToneMappingMode = IosToneMappingMode.Auto
+                iosTargetPrimaries = IosTargetPrimaries.Auto
+                iosTargetTransfer = IosTargetTransfer.Auto
+            }
+            IosVideoOutputPreset.SdrToneMapped -> {
+                iosExtendedDynamicRangeEnabled = false
+                iosTargetColorspaceHintEnabled = false
+                iosHdrComputePeakEnabled = true
+                iosToneMappingMode = IosToneMappingMode.Bt2390
+                iosTargetPrimaries = IosTargetPrimaries.Bt709
+                iosTargetTransfer = IosTargetTransfer.Srgb
+            }
+            IosVideoOutputPreset.Compatibility -> {
+                iosExtendedDynamicRangeEnabled = false
+                iosTargetColorspaceHintEnabled = true
+                iosHdrComputePeakEnabled = false
+                iosToneMappingMode = IosToneMappingMode.Auto
+                iosTargetPrimaries = IosTargetPrimaries.Auto
+                iosTargetTransfer = IosTargetTransfer.Auto
+            }
+            IosVideoOutputPreset.Custom -> Unit
+        }
+        publish()
+        saveIosVideoOutputSettings()
+    }
+
+    fun setIosToneMappingMode(mode: IosToneMappingMode) {
+        ensureLoaded()
+        iosVideoOutputPreset = IosVideoOutputPreset.Custom
+        iosToneMappingMode = mode
+        publish()
+        saveIosVideoOutputSettings()
+    }
+
+    fun setIosTargetPrimaries(primaries: IosTargetPrimaries) {
+        ensureLoaded()
+        iosVideoOutputPreset = IosVideoOutputPreset.Custom
+        iosTargetPrimaries = primaries
+        publish()
+        saveIosVideoOutputSettings()
+    }
+
+    fun setIosTargetTransfer(transfer: IosTargetTransfer) {
+        ensureLoaded()
+        iosVideoOutputPreset = IosVideoOutputPreset.Custom
+        iosTargetTransfer = transfer
+        publish()
+        saveIosVideoOutputSettings()
+    }
+
+    fun setIosHardwareDecoderMode(mode: IosHardwareDecoderMode) {
+        ensureLoaded()
+        iosHardwareDecoderMode = mode
+        publish()
+        PlayerSettingsStorage.saveIosHardwareDecoderMode(mode.name)
+    }
+
+    fun setIosAudioOutputMode(mode: IosAudioOutputMode) {
+        ensureLoaded()
+        iosAudioOutputMode = mode.takeUnless { it == IosAudioOutputMode.AvFoundation } ?: IosAudioOutputMode.Auto
+        publish()
+        PlayerSettingsStorage.saveIosAudioOutputMode(iosAudioOutputMode.name)
+    }
+
+    fun setIosExtendedDynamicRangeEnabled(enabled: Boolean) {
+        ensureLoaded()
+        iosVideoOutputPreset = IosVideoOutputPreset.Custom
+        iosExtendedDynamicRangeEnabled = enabled
+        publish()
+        saveIosVideoOutputSettings()
+    }
+
+    fun setIosTargetColorspaceHintEnabled(enabled: Boolean) {
+        ensureLoaded()
+        iosVideoOutputPreset = IosVideoOutputPreset.Custom
+        iosTargetColorspaceHintEnabled = enabled
+        publish()
+        saveIosVideoOutputSettings()
+    }
+
+    fun setIosHdrComputePeakEnabled(enabled: Boolean) {
+        ensureLoaded()
+        iosVideoOutputPreset = IosVideoOutputPreset.Custom
+        iosHdrComputePeakEnabled = enabled
+        publish()
+        saveIosVideoOutputSettings()
+    }
+
+    fun setIosDebandEnabled(enabled: Boolean) {
+        ensureLoaded()
+        iosDebandEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveIosDebandEnabled(enabled)
+    }
+
+    fun setIosInterpolationEnabled(enabled: Boolean) {
+        ensureLoaded()
+        iosInterpolationEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveIosInterpolationEnabled(enabled)
+    }
+
+    fun setIosBrightness(value: Int) {
+        ensureLoaded()
+        iosBrightness = value.coerceIn(-50, 50)
+        publish()
+        PlayerSettingsStorage.saveIosBrightness(iosBrightness)
+    }
+
+    fun setIosContrast(value: Int) {
+        ensureLoaded()
+        iosContrast = value.coerceIn(-50, 50)
+        publish()
+        PlayerSettingsStorage.saveIosContrast(iosContrast)
+    }
+
+    fun setIosSaturation(value: Int) {
+        ensureLoaded()
+        iosSaturation = value.coerceIn(-50, 50)
+        publish()
+        PlayerSettingsStorage.saveIosSaturation(iosSaturation)
+    }
+
+    fun setIosGamma(value: Int) {
+        ensureLoaded()
+        iosGamma = value.coerceIn(-50, 50)
+        publish()
+        PlayerSettingsStorage.saveIosGamma(iosGamma)
+    }
+
+    fun resetIosVideoOutputTuning() {
+        ensureLoaded()
+        iosBrightness = 0
+        iosContrast = 0
+        iosSaturation = 0
+        iosGamma = 0
+        iosDebandEnabled = false
+        iosInterpolationEnabled = false
+        publish()
+        PlayerSettingsStorage.saveIosBrightness(0)
+        PlayerSettingsStorage.saveIosContrast(0)
+        PlayerSettingsStorage.saveIosSaturation(0)
+        PlayerSettingsStorage.saveIosGamma(0)
+        PlayerSettingsStorage.saveIosDebandEnabled(false)
+        PlayerSettingsStorage.saveIosInterpolationEnabled(false)
+    }
+
+    private fun saveIosVideoOutputSettings() {
+        PlayerSettingsStorage.saveIosVideoOutputPreset(iosVideoOutputPreset.name)
+        PlayerSettingsStorage.saveIosToneMappingMode(iosToneMappingMode.name)
+        PlayerSettingsStorage.saveIosTargetPrimaries(iosTargetPrimaries.name)
+        PlayerSettingsStorage.saveIosTargetTransfer(iosTargetTransfer.name)
+        PlayerSettingsStorage.saveIosExtendedDynamicRangeEnabled(iosExtendedDynamicRangeEnabled)
+        PlayerSettingsStorage.saveIosTargetColorspaceHintEnabled(iosTargetColorspaceHintEnabled)
+        PlayerSettingsStorage.saveIosHdrComputePeakEnabled(iosHdrComputePeakEnabled)
+    }
+
+    private fun publish() {
+        _uiState.value = PlayerSettingsUiState(
+            useLegacyPlayerLayout = useLegacyPlayerLayout,
+            playerUiMode = playerUiMode,
+            showLoadingOverlay = showLoadingOverlay,
+            showPlayerLoadingStatus = showPlayerLoadingStatus,
+            pauseOverlayEnabled = pauseOverlayEnabled,
+            showParentalGuide = showParentalGuide,
+            resizeMode = resizeMode,
+            holdToSpeedEnabled = holdToSpeedEnabled,
+            holdToSpeedValue = holdToSpeedValue,
+            touchGesturesEnabled = touchGesturesEnabled,
+            externalPlayerEnabled = externalPlayerEnabled && AppFeaturePolicy.externalPlayerSupported,
+            externalPlayerForwardSubtitles = externalPlayerForwardSubtitles && AppFeaturePolicy.externalPlayerSupported,
+            externalPlayerSendSkipSegments = externalPlayerSendSkipSegments,
+            externalPlayerId = externalPlayerId,
+            preferredAudioLanguage = preferredAudioLanguage,
+            secondaryPreferredAudioLanguage = secondaryPreferredAudioLanguage,
+            preferredSubtitleLanguage = preferredSubtitleLanguage,
+            secondaryPreferredSubtitleLanguage = secondaryPreferredSubtitleLanguage,
+            subtitleStyle = subtitleStyle,
+            streamReuseLastLinkEnabled = streamReuseLastLinkEnabled,
+            streamReuseLastLinkCacheHours = streamReuseLastLinkCacheHours,
+            androidPlaybackEngine = androidPlaybackEngine,
+            autoSwitchPlaybackEngineOnError = autoSwitchPlaybackEngineOnError,
+            androidLibmpvVideoOutput = androidLibmpvVideoOutput,
+            androidLibmpvHardwareDecodingEnabled = androidLibmpvHardwareDecodingEnabled,
+            androidLibmpvYuv420pEnabled = androidLibmpvYuv420pEnabled,
+            androidExoChaptersEnabled = androidExoChaptersEnabled,
+            rememberAudioDelayPerDevice = rememberAudioDelayPerDevice,
+            persistAudioAmplification = persistAudioAmplification,
+            audioAmplificationDb = audioAmplificationDb,
+            downmixEnabled = downmixEnabled,
+            audioOutputChannels = audioOutputChannels,
+            maintainOriginalAudioOnDownmix = maintainOriginalAudioOnDownmix,
+            centerMixLevelDb = centerMixLevelDb,
+            decoderPriority = decoderPriority,
+            mapDV7ToHevc = mapDV7ToHevc,
+            tunnelingEnabled = tunnelingEnabled,
+            exoNativeMemoryEnabled = exoNativeMemoryEnabled,
+            bufferEngineEnabled = bufferEngineEnabled,
+            minBufferMs = minBufferMs,
+            maxBufferMs = maxBufferMs,
+            bufferForPlaybackMs = bufferForPlaybackMs,
+            bufferForPlaybackAfterRebufferMs = bufferForPlaybackAfterRebufferMs,
+            backBufferDurationMs = backBufferDurationMs,
+            targetBufferSizeMb = targetBufferSizeMb,
+            vodCacheEnabled = vodCacheEnabled,
+            vodCacheSizeMode = vodCacheSizeMode,
+            vodCacheSizeMb = vodCacheSizeMb,
+            streamAutoPlayMode = streamAutoPlayMode,
+            streamAutoPlaySource = streamAutoPlaySource,
+            streamAutoPlaySelectedAddons = streamAutoPlaySelectedAddons,
+            streamAutoPlaySelectedPlugins = streamAutoPlaySelectedPlugins,
+            streamAutoPlayRegex = streamAutoPlayRegex,
+            streamAutoPlayTimeoutSeconds = streamAutoPlayTimeoutSeconds,
+            skipIntroEnabled = skipIntroEnabled,
+            autoSkipSegmentTypes = autoSkipSegmentTypes,
+            animeSkipEnabled = animeSkipEnabled,
+            animeSkipClientId = animeSkipClientId,
+            introDbApiKey = introDbApiKey,
+            introSubmitEnabled = introSubmitEnabled,
+            streamAutoPlayNextEpisodeEnabled = streamAutoPlayNextEpisodeEnabled,
+            streamAutoPlayNextEpisodeFallbackEnabled = streamAutoPlayNextEpisodeFallbackEnabled,
+            streamAutoPlayPreferBingeGroup = streamAutoPlayPreferBingeGroup,
+            streamAutoPlayReuseBingeGroup = streamAutoPlayReuseBingeGroup,
+            nextEpisodeThresholdMode = nextEpisodeThresholdMode,
+            nextEpisodeThresholdPercent = nextEpisodeThresholdPercent,
+            nextEpisodeThresholdMinutesBeforeEnd = nextEpisodeThresholdMinutesBeforeEnd,
+            preloadNextEpisodeSources = preloadNextEpisodeSources,
+            useLibass = useLibass,
+            libassRenderType = libassRenderType,
+            libassRenderScale = libassRenderScale,
+            libassRenderMode = libassRenderMode,
+            iosVideoOutputPreset = iosVideoOutputPreset,
+            iosToneMappingMode = iosToneMappingMode,
+            iosTargetPrimaries = iosTargetPrimaries,
+            iosTargetTransfer = iosTargetTransfer,
+            iosHardwareDecoderMode = iosHardwareDecoderMode,
+            iosAudioOutputMode = iosAudioOutputMode,
+            iosExtendedDynamicRangeEnabled = iosExtendedDynamicRangeEnabled,
+            iosTargetColorspaceHintEnabled = iosTargetColorspaceHintEnabled,
+            iosHdrComputePeakEnabled = iosHdrComputePeakEnabled,
+            iosDebandEnabled = iosDebandEnabled,
+            iosInterpolationEnabled = iosInterpolationEnabled,
+            iosBrightness = iosBrightness,
+            iosContrast = iosContrast,
+            iosSaturation = iosSaturation,
+            iosGamma = iosGamma,
+            nvidiaRtxSuperResolutionEnabled = nvidiaRtxSuperResolutionEnabled,
+            animeUpscalerOption = animeUpscalerOption,
+            animeUpscalerEnabled = animeUpscalerEnabled,
+            animeUpscalerMode = animeUpscalerMode,
+            svpMotionOption = svpMotionOption,
+            playbackBufferPreset = playbackBufferPreset,
+            audioNightModeEnabled = audioNightModeEnabled,
+            showSeekbarWhileSeeking = showSeekbarWhileSeeking,
+            showClockInPlayer = showClockInPlayer,
+            seekPreviewEnabled = seekPreviewEnabled,
+            seekPreviewWhileDragging = seekPreviewWhileDragging,
+            seekPreviewWhileHovering = seekPreviewWhileHovering,
+            seekPreviewWhileKeyboardSeeking = seekPreviewWhileKeyboardSeeking,
+            seekPreviewThumbnailCount = seekPreviewThumbnailCount,
+            seekrApiKey = seekrApiKey,
+            showRemainingTime = showRemainingTime,
+            eyeFilterEnabled = eyeFilterEnabled,
+            eyeFilterColor = eyeFilterColor,
+            eyeFilterOpacity = eyeFilterOpacity,
+            playerUiScale = playerUiScale,
+        )
+    }
+
+    private fun normalizeStreamAutoPlaySource(source: StreamAutoPlaySource): StreamAutoPlaySource {
+        return if (!AppFeaturePolicy.pluginsEnabled && source == StreamAutoPlaySource.ENABLED_PLUGINS_ONLY) {
+            StreamAutoPlaySource.ALL_SOURCES
+        } else {
+            source
+        }
+    }
+}

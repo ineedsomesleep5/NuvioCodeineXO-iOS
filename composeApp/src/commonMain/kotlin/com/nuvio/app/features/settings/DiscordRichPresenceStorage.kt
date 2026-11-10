@@ -1,0 +1,20 @@
+package com.nuvio.app.features.settings
+
+internal expect object DiscordRichPresencePlatform {
+    val isSupported: Boolean
+}
+
+internal expect object DiscordRichPresenceStorage {
+    fun loadEnabled(): Boolean?
+    fun saveEnabled(enabled: Boolean)
+    fun loadActivityMode(): DiscordActivityMode?
+    fun saveActivityMode(mode: DiscordActivityMode)
+    fun loadActivityType(): DiscordActivityType?
+    fun saveActivityType(type: DiscordActivityType)
+    fun loadEpisodeSmallImageEnabled(): Boolean?
+    fun saveEpisodeSmallImageEnabled(enabled: Boolean)
+    fun loadEpisodeNameEnabled(): Boolean?
+    fun saveEpisodeNameEnabled(enabled: Boolean)
+    fun loadFullPosterEnabled(): Boolean?
+    fun saveFullPosterEnabled(enabled: Boolean)
+}

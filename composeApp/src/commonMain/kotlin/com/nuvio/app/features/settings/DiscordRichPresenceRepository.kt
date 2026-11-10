@@ -1,0 +1,83 @@
+package com.nuvio.app.features.settings
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+internal object DiscordRichPresenceRepository {
+    val isSupported: Boolean
+        get() = DiscordRichPresencePlatform.isSupported
+
+    private val _enabled = MutableStateFlow(isSupported)
+    val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
+
+    private val _activityMode = MutableStateFlow(DiscordActivityMode.ALL)
+    val activityMode: StateFlow<DiscordActivityMode> = _activityMode.asStateFlow()
+
+    private val _activityType = MutableStateFlow(DiscordActivityType.WATCHING)
+    val activityType: StateFlow<DiscordActivityType> = _activityType.asStateFlow()
+
+    private val _fullPosterEnabled = MutableStateFlow(false)
+    val fullPosterEnabled: StateFlow<Boolean> = _fullPosterEnabled.asStateFlow()
+
+    private val _episodeSmallImageEnabled = MutableStateFlow(true)
+    val episodeSmallImageEnabled: StateFlow<Boolean> = _episodeSmallImageEnabled.asStateFlow()
+
+    private val _episodeNameEnabled = MutableStateFlow(true)
+    val episodeNameEnabled: StateFlow<Boolean> = _episodeNameEnabled.asStateFlow()
+
+    private var hasLoaded = false
+
+    fun ensureLoaded() {
+        if (hasLoaded) return
+        hasLoaded = true
+        _enabled.value = DiscordRichPresenceStorage.loadEnabled() ?: isSupported
+        _activityMode.value = DiscordRichPresenceStorage.loadActivityMode() ?: DiscordActivityMode.ALL
+        _activityType.value = DiscordRichPresenceStorage.loadActivityType() ?: DiscordActivityType.WATCHING
+        _fullPosterEnabled.value = DiscordRichPresenceStorage.loadFullPosterEnabled() ?: false
+        _episodeSmallImageEnabled.value = DiscordRichPresenceStorage.loadEpisodeSmallImageEnabled() ?: true
+        _episodeNameEnabled.value = DiscordRichPresenceStorage.loadEpisodeNameEnabled() ?: true
+    }
+
+    fun setEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_enabled.value == enabled) return
+        _enabled.value = enabled
+        DiscordRichPresenceStorage.saveEnabled(enabled)
+    }
+
+    fun setActivityMode(mode: DiscordActivityMode) {
+        ensureLoaded()
+        if (_activityMode.value == mode) return
+        _activityMode.value = mode
+        DiscordRichPresenceStorage.saveActivityMode(mode)
+    }
+
+    fun setActivityType(type: DiscordActivityType) {
+        ensureLoaded()
+        if (_activityType.value == type) return
+        _activityType.value = type
+        DiscordRichPresenceStorage.saveActivityType(type)
+    }
+
+    fun setEpisodeSmallImageEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_episodeSmallImageEnabled.value == enabled) return
+        _episodeSmallImageEnabled.value = enabled
+        DiscordRichPresenceStorage.saveEpisodeSmallImageEnabled(enabled)
+    }
+
+    fun setEpisodeNameEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_episodeNameEnabled.value == enabled) return
+        _episodeNameEnabled.value = enabled
+        DiscordRichPresenceStorage.saveEpisodeNameEnabled(enabled)
+    }
+
+    fun setFullPosterEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_fullPosterEnabled.value == enabled) return
+        _fullPosterEnabled.value = enabled
+        DiscordRichPresenceStorage.saveFullPosterEnabled(enabled)
+    }
+}

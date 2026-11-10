@@ -1,0 +1,1001 @@
+package com.nuvio.app.features.settings
+
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PosterCardStyleRepository
+import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.p2p.P2pConsentDialog
+import com.nuvio.app.features.p2p.P2pCacheClearResult
+import com.nuvio.app.features.p2p.P2pCacheSize
+import com.nuvio.app.features.p2p.P2pSettingsRepository
+import com.nuvio.app.features.p2p.P2pStreamingEngine
+import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.p2p.P2pTorrentProfile
+import com.nuvio.app.features.anime.AnimeFillerSettingsRepository
+import com.nuvio.app.features.player.AnimeUpscalerMode
+import com.nuvio.app.features.player.AnimeUpscalerOption
+import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.PlayerUiMode
+import com.nuvio.app.features.player.SvpMotionOption
+import com.nuvio.app.features.player.VideoEnhancementsHardwareNote
+import com.nuvio.app.features.player.subtitleFontLabel
+import com.nuvio.app.features.player.selectFont
+import com.nuvio.app.features.player.SubtitleColorEditTarget
+import com.nuvio.app.features.player.SubtitleColorSwatches
+import com.nuvio.app.features.player.SubtitleOutlineColorSwatches
+import com.nuvio.app.features.player.SubtitleOutlineWidths
+import com.nuvio.app.features.player.SubtitleOutlineEffect
+import com.nuvio.app.features.player.outlineWidthLabel
+import com.nuvio.app.features.player.effectColor
+import com.nuvio.app.features.player.withEffectColor
+import com.nuvio.app.features.player.withEffectOpacity
+import kotlin.math.roundToInt
+import com.nuvio.app.features.details.MetaScreenSettingsRepository
+import com.nuvio.app.features.home.HomeCatalogSettingsRepository
+import com.nuvio.app.isDesktop
+import com.nuvio.app.isWindows
+import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.compose_player_outline_opacity
+import nuvio.composeapp.generated.resources.compose_player_box_color
+import nuvio.composeapp.generated.resources.compose_player_box_opacity
+import nuvio.composeapp.generated.resources.settings_advanced_discord_activity_mode
+import nuvio.composeapp.generated.resources.settings_advanced_discord_activity_mode_all
+import nuvio.composeapp.generated.resources.settings_advanced_discord_activity_mode_only_watching
+import nuvio.composeapp.generated.resources.settings_advanced_discord_rich_presence
+import nuvio.composeapp.generated.resources.settings_advanced_discord_rich_presence_description
+import nuvio.composeapp.generated.resources.settings_advanced_section_discord
+import nuvio.composeapp.generated.resources.settings_appearance_section_display
+import nuvio.composeapp.generated.resources.settings_playback_player_ui
+import nuvio.composeapp.generated.resources.settings_playback_section_player
+import nuvio.composeapp.generated.resources.settings_playback_section_subtitle_rendering
+import nuvio.composeapp.generated.resources.settings_playback_subtitle_outline_color
+import nuvio.composeapp.generated.resources.settings_playback_subtitle_text_color
+import nuvio.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
+
+internal fun LazyListScope.codeineXOSettingsContent(
+    section: SettingsPage? = null,
+    isTablet: Boolean,
+    onOnboardingClick: (() -> Unit)? = null,
+) {
+    // ─── Quick Setup & Onboarding ───
+    if (section == null) {
+    if (onOnboardingClick != null) {
+        item {
+            SettingsSection(
+                title = "QUICK SETUP",
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsNavigationRow(
+                        title = "Revisit CodeineXO Onboarding",
+                        description = "Re-run setup wizard or review and apply recommended presets",
+                        icon = Icons.Rounded.AutoAwesome,
+                        isTablet = isTablet,
+                        onClick = onOnboardingClick,
+                    )
+                }
+            }
+        }
+    }
+
+    // ─── Discord Support / Issue Reporting ───
+    }
+    if (section == null) {
+    item {
+        val tokens = MaterialTheme.nuvio
+        val clipboardManager = LocalClipboardManager.current
+        SettingsGroup(isTablet = isTablet) {
+            SettingsNavigationRow(
+                title = "DM me on Discord @ codeine_xo to report issues",
+                description = null,
+                icon = Icons.Rounded.Chat,
+                isTablet = isTablet,
+                trailingContent = {
+                    Icon(
+                        imageVector = Icons.Rounded.ContentCopy,
+                        contentDescription = "Copy Discord username",
+                        tint = tokens.colors.textMuted,
+                        modifier = Modifier.size(if (isTablet) 20.dp else 18.dp),
+                    )
+                },
+                onClick = {
+                    clipboardManager.setText(AnnotatedString("codeine_xo"))
+                    NuvioToastController.show("Copied @codeine_xo to clipboard")
+                },
+            )
+        }
+    }
+    // ─── Display / Interface ───
+    }
+    if (section == null || section == SettingsPage.Layout) {
+    item {
+        val auraBackgroundEnabled by remember {
+            ThemeSettingsRepository.ensureLoaded()
+            ThemeSettingsRepository.auraBackgroundEnabled
+        }.collectAsStateWithLifecycle()
+        val surfaceStyle by ThemeSettingsRepository.surfaceStyle.collectAsStateWithLifecycle()
+        val homeCatalogSettings by remember {
+            HomeCatalogSettingsRepository.snapshot()
+            HomeCatalogSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+        val metaScreenSettings by remember {
+            MetaScreenSettingsRepository.ensureLoaded()
+            MetaScreenSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+        val posterCardStyle by remember {
+            PosterCardStyleRepository.ensureLoaded()
+            PosterCardStyleRepository.uiState
+        }.collectAsStateWithLifecycle()
+
+        SettingsSection(
+            title = "LAYOUT",
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = "CodeineXO Aura",
+                    description = "Dynamic chromatic aurora ambient background",
+                    checked = auraBackgroundEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = ThemeSettingsRepository::setAuraBackgroundEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                AuraCustomizationRow(isTablet = isTablet)
+                if (isDesktop) {
+                    val appScale by remember {
+                        ThemeSettingsRepository.ensureLoaded()
+                        ThemeSettingsRepository.appScale
+                    }.collectAsStateWithLifecycle()
+                    val playerSettings by remember {
+                        PlayerSettingsRepository.ensureLoaded()
+                        PlayerSettingsRepository.uiState
+                    }.collectAsStateWithLifecycle()
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsDropdownRow(
+                        title = stringResource(Res.string.settings_appearance_app_scale),
+                        description = stringResource(Res.string.settings_appearance_app_scale_description),
+                        selectedKey = appScale.toString(),
+                        selectedLabel = "${appScale}%",
+                        options = uiScaleDropdownOptions,
+                        isTablet = isTablet,
+                        onSelected = { option -> option.key.toIntOrNull()?.let(ThemeSettingsRepository::setAppScale) },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsDropdownRow(
+                        title = stringResource(Res.string.settings_playback_player_ui_scale),
+                        description = stringResource(Res.string.settings_playback_player_ui_scale_description),
+                        selectedKey = playerSettings.playerUiScale.toString(),
+                        selectedLabel = "${playerSettings.playerUiScale}%",
+                        options = uiScaleDropdownOptions,
+                        isTablet = isTablet,
+                        onSelected = { option -> option.key.toIntOrNull()?.let(PlayerSettingsRepository::setPlayerUiScale) },
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SurfaceStyleSettingsRow(
+                    selectedStyle = surfaceStyle,
+                    isTablet = isTablet,
+                    onSelected = ThemeSettingsRepository::setSurfaceStyle,
+                )
+                if (isDesktop) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    NavigationFeelSettingsRow(isTablet)
+                    SettingsGroupDivider(isTablet = isTablet)
+                    KeyboardNavigationSettingsRow(isTablet)
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_poster_glow),
+                        description = stringResource(Res.string.settings_poster_glow_description),
+                        checked = posterCardStyle.glowEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PosterCardStyleRepository::setGlowEnabled,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_homescreen_scroll_posters_layout),
+                        description = stringResource(Res.string.settings_homescreen_scroll_posters_layout_description),
+                        checked = homeCatalogSettings.scrollPostersLayoutEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = HomeCatalogSettingsRepository::setScrollPostersLayoutEnabled,
+                    )
+                    if (homeCatalogSettings.scrollPostersLayoutEnabled) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        PosterGutterSizeSettingsRow(size = homeCatalogSettings.posterGutterSize, isTablet = isTablet)
+                    }
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_homescreen_always_animate_collections),
+                    description = stringResource(Res.string.settings_homescreen_always_animate_collections_description),
+                    checked = homeCatalogSettings.alwaysAnimateCollectionCards,
+                    isTablet = isTablet,
+                    onCheckedChange = HomeCatalogSettingsRepository::setAlwaysAnimateCollectionCards,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_poster_hide_labels),
+                    description = stringResource(Res.string.settings_poster_hide_labels_description),
+                    checked = posterCardStyle.hideLabelsEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PosterCardStyleRepository::setHideLabelsEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_poster_hide_year),
+                    description = stringResource(Res.string.settings_poster_hide_year_description),
+                    checked = posterCardStyle.hideYearEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PosterCardStyleRepository::setHideYearEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                MetaEpisodeCardStyleSelector(
+                    isTablet = isTablet,
+                    selectedStyle = metaScreenSettings.episodeCardStyle,
+                    onStyleSelected = MetaScreenSettingsRepository::setEpisodeCardStyle,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                MetadataInfoSettings(isTablet = isTablet, checked = metaScreenSettings.showMetadataInfo)
+            }
+        }
+    }
+
+    // ─── Player ───
+    }
+    if (section == null || section == SettingsPage.PlaybackInterface) {
+    item {
+        val playerSettings by remember {
+            PlayerSettingsRepository.ensureLoaded()
+            PlayerSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+        val p2pSettings by remember {
+            P2pSettingsRepository.ensureLoaded()
+            P2pSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+
+        var showPlayerUiDialog by rememberSaveable { mutableStateOf(false) }
+        var showEyeFilterColorDialog by rememberSaveable { mutableStateOf(false) }
+        var showEyeFilterOpacityDialog by rememberSaveable { mutableStateOf(false) }
+
+        SettingsSection(
+            title = stringResource(Res.string.settings_playback_section_player),
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                if (isWindows) {
+                    PlaybackBufferSetting(isTablet)
+                    SettingsGroupDivider(isTablet = isTablet)
+                }
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_player_ui),
+                    description = stringResource(playerSettings.playerUiMode.labelRes),
+                    isTablet = isTablet,
+                    onClick = { showPlayerUiDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_show_clock_in_player),
+                    description = stringResource(Res.string.settings_playback_show_clock_in_player_description),
+                    checked = playerSettings.showClockInPlayer,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setShowClockInPlayer,
+                )
+                if (P2pSettingsRepository.isVisible) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_p2p_show_stats_title),
+                        description = stringResource(Res.string.settings_p2p_show_stats_subtitle),
+                        checked = p2pSettings.showTorrentStatsOverlay,
+                        isTablet = isTablet,
+                        onCheckedChange = P2pSettingsRepository::setShowTorrentStatsOverlay,
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_show_seekbar_while_seeking),
+                    description = stringResource(Res.string.settings_playback_show_seekbar_while_seeking_description),
+                    checked = playerSettings.showSeekbarWhileSeeking,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setShowSeekbarWhileSeeking,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Enable Eye Filter",
+                    description = "Reduce eye strain with a night light or screen dimmer overlay",
+                    checked = playerSettings.eyeFilterEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setEyeFilterEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = "Eye Filter Color",
+                    description = when (playerSettings.eyeFilterColor.uppercase()) {
+                        "#000000" -> "Black"
+                        "#0F172A", "#1C2833" -> "Deep Navy"
+                        else -> "Custom (${playerSettings.eyeFilterColor})"
+                    },
+                    isTablet = isTablet,
+                    onClick = { showEyeFilterColorDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = "Eye Filter Opacity",
+                    description = "${(playerSettings.eyeFilterOpacity * 100).toInt()}%",
+                    isTablet = isTablet,
+                    onClick = { showEyeFilterOpacityDialog = true },
+                )
+
+            }
+        }
+
+        if (showPlayerUiDialog) {
+            IosEnumSelectionDialog(
+                title = stringResource(Res.string.settings_playback_player_ui),
+                options = PlayerUiMode.entries,
+                selected = playerSettings.playerUiMode,
+                label = { stringResource(it.labelRes) },
+                description = { stringResource(it.descriptionRes) },
+                onSelect = { mode ->
+                    PlayerSettingsRepository.setPlayerUiMode(mode)
+                    showPlayerUiDialog = false
+                },
+                onDismiss = { showPlayerUiDialog = false },
+            )
+        }
+
+        if (showEyeFilterColorDialog) {
+            val colorOptions = listOf(
+                "#000000" to "Black",
+                "#0F172A" to "Deep Navy",
+            )
+            IosEnumSelectionDialog(
+                title = "Eye Filter Color",
+                options = colorOptions.map { it.first },
+                selected = colorOptions.firstOrNull { it.first.equals(playerSettings.eyeFilterColor, ignoreCase = true) }?.first ?: "#000000",
+                label = { hex -> colorOptions.firstOrNull { it.first == hex }?.second ?: hex },
+                description = { hex -> hex },
+                onSelect = { hex ->
+                    PlayerSettingsRepository.setEyeFilterColor(hex)
+                    showEyeFilterColorDialog = false
+                },
+                onDismiss = { showEyeFilterColorDialog = false },
+            )
+        }
+
+        if (showEyeFilterOpacityDialog) {
+            val opacityOptions = listOf(0.10f, 0.20f, 0.30f, 0.35f, 0.40f, 0.50f, 0.60f, 0.70f, 0.80f)
+            IosEnumSelectionDialog(
+                title = "Eye Filter Opacity",
+                options = opacityOptions,
+                selected = opacityOptions.minByOrNull { kotlin.math.abs(it - playerSettings.eyeFilterOpacity) } ?: 0.35f,
+                label = { opacity -> if (opacity == 0.35f) "35% (Default)" else "${(opacity * 100).toInt()}%" },
+                description = { "" },
+                onSelect = { opacity ->
+                    PlayerSettingsRepository.setEyeFilterOpacity(opacity)
+                    showEyeFilterOpacityDialog = false
+                },
+                onDismiss = { showEyeFilterOpacityDialog = false },
+            )
+        }
+
+    }
+
+    }
+    if (section == null || section == SettingsPage.PlaybackInterface) {
+    item {
+        val playerSettings by remember {
+            PlayerSettingsRepository.ensureLoaded()
+            PlayerSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+
+        SeekPreviewSettingsSection(playerSettings, isTablet)
+    }
+
+    }
+    if (section == null || section == SettingsPage.PlaybackVideo) {
+    if (isDesktop) {
+        // ─── Video Enhancements ───
+        item {
+            val playerSettings by remember {
+                PlayerSettingsRepository.ensureLoaded()
+                PlayerSettingsRepository.uiState
+            }.collectAsStateWithLifecycle()
+
+            var showAnimeUpscalerOptionDialog by rememberSaveable { mutableStateOf(false) }
+            var showAnimeUpscalerModeDialog by rememberSaveable { mutableStateOf(false) }
+            var showSvpMotionOptionDialog by rememberSaveable { mutableStateOf(false) }
+
+            SettingsSection(
+                title = "VIDEO ENHANCEMENTS",
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    VideoEnhancementsHardwareNote()
+                    SettingsNavigationRow(
+                        title = "Anime Upscaler",
+                        description = playerSettings.animeUpscalerOption.label,
+                        isTablet = isTablet,
+                        onClick = { showAnimeUpscalerOptionDialog = true },
+                    )
+                    if (playerSettings.animeUpscalerOption != AnimeUpscalerOption.OFF) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = "Upscaler Mode",
+                            description = playerSettings.animeUpscalerMode.label,
+                            isTablet = isTablet,
+                            onClick = { showAnimeUpscalerModeDialog = true },
+                        )
+                    }
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Motion Interpolation (SVP)",
+                        description = playerSettings.svpMotionOption.label,
+                        isTablet = isTablet,
+                        onClick = { showSvpMotionOptionDialog = true },
+                    )
+                }
+            }
+
+            if (showAnimeUpscalerOptionDialog) {
+                AnimeUpscalerOptionDialog(
+                    selectedOption = playerSettings.animeUpscalerOption,
+                    onOptionSelected = { option ->
+                        PlayerSettingsRepository.setAnimeUpscalerOption(option)
+                        showAnimeUpscalerOptionDialog = false
+                    },
+                    onDismiss = { showAnimeUpscalerOptionDialog = false },
+                )
+            }
+
+            if (showAnimeUpscalerModeDialog) {
+                AnimeUpscalerModeDialog(
+                    selectedMode = playerSettings.animeUpscalerMode,
+                    onModeSelected = { mode ->
+                        PlayerSettingsRepository.setAnimeUpscalerMode(mode)
+                        showAnimeUpscalerModeDialog = false
+                    },
+                    onDismiss = { showAnimeUpscalerModeDialog = false },
+                )
+            }
+
+            if (showSvpMotionOptionDialog) {
+                SvpMotionOptionDialog(
+                    selectedOption = playerSettings.svpMotionOption,
+                    onOptionSelected = { option ->
+                        PlayerSettingsRepository.setSvpMotionOption(option)
+                        showSvpMotionOptionDialog = false
+                    },
+                    onDismiss = { showSvpMotionOptionDialog = false },
+                )
+            }
+        }
+    }
+
+    // ─── Anime ───
+    }
+    if (section == null || section == SettingsPage.PlaybackSkipSegments) {
+    item {
+        val animeFillerEnabled by remember {
+            AnimeFillerSettingsRepository.ensureLoaded()
+            AnimeFillerSettingsRepository.enabled
+        }.collectAsStateWithLifecycle()
+        val animeHideFillers by remember {
+            AnimeFillerSettingsRepository.ensureLoaded()
+            AnimeFillerSettingsRepository.hideFillers
+        }.collectAsStateWithLifecycle()
+
+        SettingsSection(
+            title = "ANIME",
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = "Anime Filler Detection",
+                    description = "Identify and mark filler episodes across catalog and metadata addons",
+                    checked = animeFillerEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = AnimeFillerSettingsRepository::setEnabled,
+                )
+                if (animeFillerEnabled) {
+                    SettingsSwitchRow(
+                        title = "Hide Anime Filler Episodes",
+                        description = "Hide filler episodes from episode lists and skip them during playback (mixed episodes are kept)",
+                        checked = animeHideFillers,
+                        isTablet = isTablet,
+                        onCheckedChange = AnimeFillerSettingsRepository::setHideFillers,
+                    )
+                }
+            }
+        }
+    }
+
+    }
+    if (section == null || section == SettingsPage.PlaybackAudio) {
+    if (isDesktop) {
+        // ─── Audio Enhancement ───
+        item {
+            val playerSettings by remember {
+                PlayerSettingsRepository.ensureLoaded()
+                PlayerSettingsRepository.uiState
+            }.collectAsStateWithLifecycle()
+
+            SettingsSection(
+                title = "AUDIO ENHANCEMENT",
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_audio_night_mode),
+                        description = stringResource(Res.string.settings_playback_audio_night_mode_desc),
+                        checked = playerSettings.audioNightModeEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setAudioNightModeEnabled,
+                    )
+                }
+            }
+        }
+    }
+
+    // ─── Subtitle Rendering ───
+    }
+    if (section == null) {
+    item {
+        val playerSettings by remember {
+            PlayerSettingsRepository.ensureLoaded()
+            PlayerSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+
+        var showSubtitleFontDialog by rememberSaveable { mutableStateOf(false) }
+        var showSubtitleOutlineEffectDialog by rememberSaveable { mutableStateOf(false) }
+        var showSubtitleTextColorDialog by rememberSaveable { mutableStateOf(false) }
+        var showSubtitleOutlineColorDialog by rememberSaveable { mutableStateOf(false) }
+
+        val subtitleStyle = playerSettings.subtitleStyle
+        val isBackgroundBox = subtitleStyle.outlineEffect == SubtitleOutlineEffect.BACKGROUND_BOX
+
+        SettingsSection(
+            title = stringResource(Res.string.settings_playback_section_subtitle_rendering),
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = "Subtitle Font",
+                    description = subtitleFontLabel(subtitleStyle.importedFontId ?: subtitleStyle.fontName),
+                    isTablet = isTablet,
+                    onClick = { showSubtitleFontDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = "Outline Style",
+                    description = subtitleStyle.outlineEffect.label,
+                    isTablet = isTablet,
+                    onClick = { showSubtitleOutlineEffectDialog = true },
+                )
+                if (isBackgroundBox || (subtitleStyle.outlineEnabled && subtitleStyle.outlineEffect.needsOutline)) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSliderRow(
+                        title = "Outline Thickness",
+                        enabled = !isBackgroundBox,
+                        value = SubtitleOutlineWidths.indexOf(subtitleStyle.outlineWidth).coerceAtLeast(0),
+                        valueText = { "${SubtitleOutlineWidths[it].outlineWidthLabel()} px" },
+                        valueRange = SubtitleOutlineWidths.indices,
+                        step = 1,
+                        isTablet = isTablet,
+                        onValueChange = { value ->
+                            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(outlineWidth = SubtitleOutlineWidths[value]))
+                        },
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_subtitle_text_color),
+                    description = subtitleColorLabel(subtitleStyle.textColor),
+                    isTablet = isTablet,
+                    onClick = { showSubtitleTextColorDialog = true },
+                )
+                if (isBackgroundBox || (subtitleStyle.outlineEnabled && subtitleStyle.outlineEffect.needsOutline)) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(if (isBackgroundBox) Res.string.compose_player_box_color else Res.string.settings_playback_subtitle_outline_color),
+                        description = subtitleColorLabel(subtitleStyle.effectColor),
+                        isTablet = isTablet,
+                        onClick = { showSubtitleOutlineColorDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSliderRow(
+                        title = stringResource(if (isBackgroundBox) Res.string.compose_player_box_opacity else Res.string.compose_player_outline_opacity),
+                        value = (subtitleStyle.effectColor.alpha * 100f).roundToInt(),
+                        valueText = { "$it%" },
+                        valueRange = 0..100,
+                        step = 10,
+                        isTablet = isTablet,
+                        onValueChange = { value ->
+                            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.withEffectOpacity(value))
+                        },
+                    )
+                }
+            }
+        }
+
+        if (showSubtitleFontDialog) {
+            SubtitleFontDialog(
+                selectedFont = playerSettings.subtitleStyle.importedFontId ?: playerSettings.subtitleStyle.fontName,
+                onFontSelected = { font ->
+                    PlayerSettingsRepository.setSubtitleStyle(playerSettings.subtitleStyle.selectFont(font))
+                    showSubtitleFontDialog = false
+                },
+                onDismiss = { showSubtitleFontDialog = false },
+            )
+        }
+
+        if (showSubtitleOutlineEffectDialog) {
+            SubtitleOutlineEffectDialog(
+                selectedEffect = playerSettings.subtitleStyle.outlineEffect,
+                onEffectSelected = { effect ->
+                    val updated = playerSettings.subtitleStyle.copy(outlineEffect = effect)
+                    PlayerSettingsRepository.setSubtitleStyle(updated)
+                    showSubtitleOutlineEffectDialog = false
+                },
+                onDismiss = { showSubtitleOutlineEffectDialog = false },
+            )
+        }
+
+        if (showSubtitleTextColorDialog) {
+            SubtitleColorDialog(
+                title = stringResource(Res.string.settings_playback_subtitle_text_color),
+                colors = SubtitleColorSwatches,
+                selectedColor = playerSettings.subtitleStyle.textColor,
+                previewStyle = playerSettings.subtitleStyle,
+                target = SubtitleColorEditTarget.TEXT,
+                onColorSelected = { color ->
+                    PlayerSettingsRepository.setSubtitleStyle(playerSettings.subtitleStyle.copy(textColor = color))
+                },
+                onDismiss = { showSubtitleTextColorDialog = false },
+            )
+        }
+
+        if (showSubtitleOutlineColorDialog) {
+            SubtitleColorDialog(
+                title = stringResource(if (isBackgroundBox) Res.string.compose_player_box_color else Res.string.settings_playback_subtitle_outline_color),
+                colors = SubtitleOutlineColorSwatches,
+                selectedColor = playerSettings.subtitleStyle.effectColor,
+                previewStyle = playerSettings.subtitleStyle,
+                target = if (isBackgroundBox) SubtitleColorEditTarget.BACKGROUND else SubtitleColorEditTarget.OUTLINE,
+                onColorSelected = { color ->
+                    PlayerSettingsRepository.setSubtitleStyle(playerSettings.subtitleStyle.withEffectColor(color))
+                },
+                onDismiss = { showSubtitleOutlineColorDialog = false },
+            )
+        }
+    }
+
+    // ─── Discord ───
+    }
+    if (section == null) {
+    if (isDesktop && DiscordRichPresenceRepository.isSupported) {
+        item {
+            val discordEnabledFlow = remember {
+                DiscordRichPresenceRepository.ensureLoaded()
+                DiscordRichPresenceRepository.enabled
+            }
+            val discordEnabled by discordEnabledFlow.collectAsStateWithLifecycle()
+            val activityModeFlow = remember {
+                DiscordRichPresenceRepository.activityMode
+            }
+            val activityMode by activityModeFlow.collectAsStateWithLifecycle()
+            val activityTypeFlow = remember {
+                DiscordRichPresenceRepository.activityType
+            }
+            val activityType by activityTypeFlow.collectAsStateWithLifecycle()
+            val fullPosterEnabledFlow = remember {
+                DiscordRichPresenceRepository.fullPosterEnabled
+            }
+            val fullPosterEnabled by fullPosterEnabledFlow.collectAsStateWithLifecycle()
+            val episodeSmallImageEnabled by DiscordRichPresenceRepository.episodeSmallImageEnabled.collectAsStateWithLifecycle()
+            val episodeNameEnabled by DiscordRichPresenceRepository.episodeNameEnabled.collectAsStateWithLifecycle()
+            var showActivityModeSheet by rememberSaveable { mutableStateOf(false) }
+            var showActivityTypeSheet by rememberSaveable { mutableStateOf(false) }
+
+            SettingsSection(
+                title = stringResource(Res.string.settings_advanced_section_discord),
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_advanced_discord_rich_presence),
+                        description = stringResource(Res.string.settings_advanced_discord_rich_presence_description),
+                        checked = discordEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = DiscordRichPresenceRepository::setEnabled,
+                    )
+                    if (discordEnabled) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_advanced_discord_activity_type),
+                            description = stringResource(
+                                if (activityType == DiscordActivityType.WATCHING) {
+                                    Res.string.settings_advanced_discord_activity_type_watching
+                                } else {
+                                    Res.string.settings_advanced_discord_activity_type_playing
+                                }
+                            ),
+                            isTablet = isTablet,
+                            onClick = { showActivityTypeSheet = true },
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_advanced_discord_activity_mode),
+                            description = stringResource(
+                                if (activityMode == DiscordActivityMode.ONLY_WATCHING) {
+                                    Res.string.settings_advanced_discord_activity_mode_only_watching
+                                } else {
+                                    Res.string.settings_advanced_discord_activity_mode_all
+                                }
+                            ),
+                            isTablet = isTablet,
+                            onClick = { showActivityModeSheet = true },
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_advanced_discord_full_poster),
+                            description = stringResource(Res.string.settings_advanced_discord_full_poster_description),
+                            checked = fullPosterEnabled,
+                            isTablet = isTablet,
+                            onCheckedChange = DiscordRichPresenceRepository::setFullPosterEnabled,
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_advanced_discord_episode_small_image),
+                            description = stringResource(Res.string.settings_advanced_discord_episode_small_image_description),
+                            checked = episodeSmallImageEnabled,
+                            isTablet = isTablet,
+                            onCheckedChange = DiscordRichPresenceRepository::setEpisodeSmallImageEnabled,
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_advanced_discord_episode_name),
+                            description = stringResource(Res.string.settings_advanced_discord_episode_name_description),
+                            checked = episodeNameEnabled,
+                            isTablet = isTablet,
+                            onCheckedChange = DiscordRichPresenceRepository::setEpisodeNameEnabled,
+                        )
+                    }
+                }
+            }
+
+            if (showActivityTypeSheet) {
+                DiscordActivityTypeBottomSheet(
+                    selectedType = activityType,
+                    onTypeSelected = { type ->
+                        DiscordRichPresenceRepository.setActivityType(type)
+                        showActivityTypeSheet = false
+                    },
+                    onDismiss = { showActivityTypeSheet = false },
+                )
+            }
+
+            if (showActivityModeSheet) {
+                DiscordActivityModeBottomSheet(
+                    selectedMode = activityMode,
+                    onModeSelected = { mode ->
+                        DiscordRichPresenceRepository.setActivityMode(mode)
+                        showActivityModeSheet = false
+                    },
+                    onDismiss = { showActivityModeSheet = false },
+                )
+            }
+        }
+    }
+
+    // ─── P2P Torrent Streaming ───
+    }
+    if (section == null || section == SettingsPage.PlaybackP2p) {
+    if (P2pSettingsRepository.isVisible) {
+        item {
+            val p2pSettings by remember {
+                P2pSettingsRepository.ensureLoaded()
+                P2pSettingsRepository.uiState
+            }.collectAsStateWithLifecycle()
+            val p2pStreamingState by P2pStreamingEngine.state.collectAsStateWithLifecycle()
+            val p2pCacheState by P2pStreamingEngine.cacheState.collectAsStateWithLifecycle()
+            val coroutineScope = rememberCoroutineScope()
+
+            var showP2pConsentDialog by remember { mutableStateOf(false) }
+            var showP2pProfileDialog by remember { mutableStateOf(false) }
+            var showP2pCacheSizeDialog by remember { mutableStateOf(false) }
+            var p2pCacheClearResult by remember { mutableStateOf<P2pCacheClearResult?>(null) }
+            var p2pCacheClearFailed by remember { mutableStateOf(false) }
+
+            SettingsSection(
+                title = stringResource(Res.string.settings_playback_section_p2p),
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_p2p_title),
+                        description = stringResource(Res.string.settings_p2p_subtitle),
+                        checked = p2pSettings.p2pEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = { enabled ->
+                            if (enabled && !p2pSettings.p2pEnabled) {
+                                showP2pConsentDialog = true
+                            } else {
+                                P2pSettingsRepository.setP2pEnabled(enabled)
+                            }
+                        },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_p2p_hide_stats_title),
+                        description = stringResource(Res.string.settings_p2p_hide_stats_subtitle),
+                        checked = p2pSettings.hideTorrentStats,
+                        isTablet = isTablet,
+                        onCheckedChange = P2pSettingsRepository::setHideTorrentStats,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_p2p_profile_title),
+                        description = when (p2pSettings.torrentProfile) {
+                            P2pTorrentProfile.SOFT -> stringResource(Res.string.settings_p2p_profile_soft)
+                            P2pTorrentProfile.BALANCED -> stringResource(Res.string.settings_p2p_profile_balanced)
+                            P2pTorrentProfile.FAST -> stringResource(Res.string.settings_p2p_profile_fast)
+                        },
+                        isTablet = isTablet,
+                        onClick = { showP2pProfileDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_p2p_cache_size_title),
+                        description = when (p2pSettings.cacheSize) {
+                            P2pCacheSize.NONE -> stringResource(Res.string.settings_p2p_cache_none)
+                            P2pCacheSize.GB_2 -> stringResource(Res.string.settings_p2p_cache_2_gb)
+                            P2pCacheSize.GB_5 -> stringResource(Res.string.settings_p2p_cache_5_gb)
+                            P2pCacheSize.GB_10 -> stringResource(Res.string.settings_p2p_cache_10_gb)
+                            P2pCacheSize.GB_20 -> stringResource(Res.string.settings_p2p_cache_20_gb)
+                            P2pCacheSize.GB_50 -> stringResource(Res.string.settings_p2p_cache_50_gb)
+                        },
+                        isTablet = isTablet,
+                        onClick = { showP2pCacheSizeDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    val cacheClearAvailable = p2pStreamingState !is P2pStreamingState.Connecting &&
+                        p2pStreamingState !is P2pStreamingState.Streaming &&
+                        !p2pCacheState.isClearing
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_p2p_clear_cache_title),
+                        description = when {
+                            p2pCacheState.isClearing ->
+                                stringResource(Res.string.settings_p2p_clear_cache_clearing)
+                            !cacheClearAvailable ->
+                                stringResource(Res.string.settings_p2p_clear_cache_playback_active)
+                            p2pCacheClearFailed ->
+                                stringResource(Res.string.settings_p2p_clear_cache_failed)
+                            p2pCacheClearResult != null -> stringResource(
+                                Res.string.settings_p2p_clear_cache_done,
+                                run {
+                                    val b = p2pCacheClearResult!!.reclaimedBytes
+                                    val gib = 1024.0 * 1024.0 * 1024.0
+                                    val mib = 1024.0 * 1024.0
+                                    if (b >= gib) "${kotlin.math.round(b / gib * 10.0) / 10.0} GB" else "${kotlin.math.round(b / mib * 10.0) / 10.0} MB"
+                                },
+                            )
+                            !p2pCacheState.hasMeasurement ->
+                                stringResource(Res.string.settings_p2p_clear_cache_usage_pending)
+                            else -> stringResource(
+                                Res.string.settings_p2p_clear_cache_usage,
+                                run {
+                                    val b = p2pCacheState.usedBytes
+                                    val gib = 1024.0 * 1024.0 * 1024.0
+                                    val mib = 1024.0 * 1024.0
+                                    if (b >= gib) "${kotlin.math.round(b / gib * 10.0) / 10.0} GB" else "${kotlin.math.round(b / mib * 10.0) / 10.0} MB"
+                                },
+                            )
+                        },
+                        enabled = cacheClearAvailable,
+                        isTablet = isTablet,
+                        onClick = {
+                            p2pCacheClearResult = null
+                            p2pCacheClearFailed = false
+                            coroutineScope.launch {
+                                runCatching { P2pStreamingEngine.clearCache() }
+                                    .onSuccess { p2pCacheClearResult = it }
+                                    .onFailure { p2pCacheClearFailed = true }
+                            }
+                        },
+                    )
+                }
+            }
+
+            if (showP2pConsentDialog) {
+                P2pConsentDialog(
+                    onEnableP2p = {
+                        P2pSettingsRepository.setP2pEnabled(true)
+                        showP2pConsentDialog = false
+                    },
+                    onDismiss = { showP2pConsentDialog = false },
+                )
+            }
+
+            if (showP2pProfileDialog) {
+                IosEnumSelectionDialog(
+                    title = stringResource(Res.string.settings_p2p_profile_title),
+                    options = P2pTorrentProfile.entries,
+                    selected = p2pSettings.torrentProfile,
+                    label = { profile ->
+                        when (profile) {
+                            P2pTorrentProfile.SOFT -> stringResource(Res.string.settings_p2p_profile_soft)
+                            P2pTorrentProfile.BALANCED -> stringResource(Res.string.settings_p2p_profile_balanced)
+                            P2pTorrentProfile.FAST -> stringResource(Res.string.settings_p2p_profile_fast)
+                        }
+                    },
+                    description = { profile ->
+                        when (profile) {
+                            P2pTorrentProfile.SOFT ->
+                                stringResource(Res.string.settings_p2p_profile_soft_description)
+                            P2pTorrentProfile.BALANCED ->
+                                stringResource(Res.string.settings_p2p_profile_balanced_description)
+                            P2pTorrentProfile.FAST ->
+                                stringResource(Res.string.settings_p2p_profile_fast_description)
+                        }
+                    },
+                    onSelect = { profile ->
+                        P2pSettingsRepository.setTorrentProfile(profile)
+                        showP2pProfileDialog = false
+                    },
+                    onDismiss = { showP2pProfileDialog = false },
+                )
+            }
+
+            if (showP2pCacheSizeDialog) {
+                IosEnumSelectionDialog(
+                    title = stringResource(Res.string.settings_p2p_cache_size_title),
+                    options = P2pCacheSize.entries,
+                    selected = p2pSettings.cacheSize,
+                    label = { size ->
+                        when (size) {
+                            P2pCacheSize.NONE -> stringResource(Res.string.settings_p2p_cache_none)
+                            P2pCacheSize.GB_2 -> stringResource(Res.string.settings_p2p_cache_2_gb)
+                            P2pCacheSize.GB_5 -> stringResource(Res.string.settings_p2p_cache_5_gb)
+                            P2pCacheSize.GB_10 -> stringResource(Res.string.settings_p2p_cache_10_gb)
+                            P2pCacheSize.GB_20 -> stringResource(Res.string.settings_p2p_cache_20_gb)
+                            P2pCacheSize.GB_50 -> stringResource(Res.string.settings_p2p_cache_50_gb)
+                        }
+                    },
+                    onSelect = { size ->
+                        P2pSettingsRepository.setCacheSize(size)
+                        p2pCacheClearResult = null
+                        showP2pCacheSizeDialog = false
+                    },
+                    onDismiss = { showP2pCacheSizeDialog = false },
+                )
+            }
+        }
+    }
+
+    }
+    if (section == null) {
+    if (isDesktop) {
+        item { DownloadLocationSettings(isTablet) }
+    }    }
+
+}

@@ -1,0 +1,77 @@
+*.iml
+.kotlin
+.gradle
+**/build/
+!composeApp/src/**/kotlin/com/nuvio/app/core/build/
+!composeApp/src/**/kotlin/com/nuvio/app/core/build/**
+xcuserdata
+!src/**/build/
+local.properties
+.idea
+.DS_Store
+captures
+.externalNativeBuild
+.cxx
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+node_modules/
+logs/
+analysis/
+Docs
+SUPPORTER_COSMETICS.md
+supabase/migrations/
+keystore/
+scripts/build-distribution.sh
+asset
+scripts/scrape_android_compose_animation_docs.py
+tools
+AGENTS.md
+
+PERFORMANCE_FINDINGS.md
+scripts/*
+!scripts/sign-ios-device-app.py
+iosApp/Configuration/DeviceSigning.local.json
+
+# Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
+.mpvkit-build.sparseimage
+
+# Compiled native WiX helpers
+composeApp/src/desktopMain/wix/UninstallPrompt.exe
+composeApp/src/desktopMain/wix/DesktopShortcutHelper.exe
+
+# Package & Installer Artifacts
+*.msi
+*.wixobj
+*.wixpdb
+*.cab
+/*.wxs
+
+# JVM Crash & Diagnostic Dumps
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# Editor & IDE Settings
+.vscode/
+*.code-workspace
+.vs/
+*.suo
+*.user
+
+# Windows OS Metadata
+[Tt]humbs.db
+[Tt]humbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Python Cache (Scripts)
+__pycache__/
+*.py[cod]
+!composeApp/src/desktopMain/native/windows/svp-runtime/**/*.pyd
+*$py.class

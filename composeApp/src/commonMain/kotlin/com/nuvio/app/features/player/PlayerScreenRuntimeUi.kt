@@ -1,0 +1,2779 @@
+package com.nuvio.app.features.player
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import com.nuvio.app.features.player.seekpreview.LocalSeekPreviewInteraction
+import com.nuvio.app.features.player.seekpreview.seekPreviewKeyboardOffset
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import com.nuvio.app.core.ui.NuvioToastController
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.layout.onSizeChanged
+import co.touchlab.kermit.Logger
+import com.nuvio.app.core.format.formatReleaseDateForDisplay
+import com.nuvio.app.core.i18n.localizedByteUnit
+import com.nuvio.app.core.i18n.localizedEpisodeTitle
+import com.nuvio.app.core.ui.AppPresenceState
+import com.nuvio.app.core.ui.PresenceSnapshot
+import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.themePalette
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.anime.AnimeFillerSettingsRepository
+import com.nuvio.app.features.debrid.DebridSettingsRepository
+import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
+import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.p2p.P2pSettingsRepository
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.Dp
+import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.LocalFold
+import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.party.PartyRepository
+import com.nuvio.app.features.p2p.formatP2pMegabytes
+import com.nuvio.app.features.p2p.formatP2pSpeed
+import com.nuvio.app.features.player.skip.SkipIntroRepository
+import com.nuvio.app.features.streams.AddonStreamGroup
+import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
+import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.isSelectableForPlayback
+import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.features.watching.application.WatchingState
+import com.nuvio.app.features.autosync.AutoSyncSyncedSubtitle
+import com.nuvio.app.isDesktop
+import com.nuvio.app.features.player.seekpreview.SeekPreviewFilmstripOverlay
+import com.nuvio.app.features.player.skip.internalSkipAction
+import com.nuvio.app.features.servers.ServerStreams
+import com.nuvio.app.features.streams.streamAddonInstanceId
+import com.nuvio.app.isIos
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import nuvio.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
+
+private val playerControlsLog = Logger.withTag("PlayerControls")
+
+@Composable
+internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
+    partyPanelWidth: Dp,
+    partyPanelInset: Dp,
+    dockPartyPanel: Boolean,
+) {
+    val runtime = this
+    val systemBackRegistration = args.onSystemBackHandlerChanged
+    DisposableEffect(runtime, systemBackRegistration) {
+        systemBackRegistration { runtime.requestBack() }
+        onDispose { systemBackRegistration(null) }
+    }
+    DisposableEffect(runtime) {
+        SubtitleImportBridge.onImport = { file ->
+            runtime.importExternalSubtitle(file.path, file.name)
+        }
+        onDispose {
+            SubtitleImportBridge.onImport = null
+        }
+    }
+    val isInPip = rememberIsInPictureInPicture()
+    val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
+    val seasonNumber = activeSeasonNumber
+    val episodeNumber = activeEpisodeNumber
+    val episodeTitle = activeEpisodeTitle
+    val isEpisode = seasonNumber != null && episodeNumber != null
+    val episodeThumbnail = if (isEpisode) {
+        activeEpisodeThumbnail?.takeIf { it.isNotBlank() }
+            ?: playerMetaVideos.firstOrNull { it.season == seasonNumber && it.episode == episodeNumber }
+                ?.thumbnail?.takeIf { it.isNotBlank() }
+    } else {
+        null
+    }
+
+    val targetMetaForPresence = runtime.playerMeta ?: MetaDetailsRepository.peek(runtime.parentMetaType, runtime.parentMetaId)
+    val resolvedImdbIdForPresence = extractImdbId(runtime.parentMetaId)
+        ?: extractImdbId(runtime.videoId)
+        ?: extractImdbId(targetMetaForPresence?.imdbId)
+        ?: extractImdbId(targetMetaForPresence?.id)
+        ?: runtime.playerMetaVideos.firstNotNullOfOrNull { extractImdbId(it.id) }
+
+    val resolvedEpisodeImdbIdForPresence = key(
+        isEpisode, runtime.parentMetaId, resolvedImdbIdForPresence, seasonNumber, episodeNumber,
+    ) {
+        androidx.compose.runtime.produceState<String?>(
+            initialValue = null,
+            isEpisode,
+            runtime.parentMetaId,
+            resolvedImdbIdForPresence,
+            seasonNumber,
+            episodeNumber,
+        ) {
+            value = if (isEpisode && seasonNumber != null && episodeNumber != null) {
+                com.nuvio.app.features.tmdb.TmdbService.episodeImdbId(
+                    seriesId = runtime.parentMetaId.ifBlank { resolvedImdbIdForPresence.orEmpty() },
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    fallbackImdbId = resolvedImdbIdForPresence,
+                )
+            } else {
+                null
+            }
+        }.value
+    }
+
+    LaunchedEffect(
+        runtime.title,
+        runtime.poster,
+        seasonNumber,
+        episodeNumber,
+        episodeTitle,
+        episodeThumbnail,
+        playbackSnapshot.isPaused,
+        pausedForTimelineScrub,
+        resumingAfterTimelineScrubForPresence,
+        shouldPlay,
+        playbackSnapshot.isEnded,
+        playbackSnapshot.isLoading,
+        resolvedImdbIdForPresence,
+        resolvedEpisodeImdbIdForPresence,
+    ) {
+        val episodeLabel = if (isEpisode) {
+            val base = "S${seasonNumber}E${episodeNumber}"
+            if (!episodeTitle.isNullOrBlank()) "$base - $episodeTitle" else base
+        } else {
+            null
+        }
+        AppPresenceState.publish(
+            PresenceSnapshot.Player(
+                title = runtime.title,
+                episodeLabel = episodeLabel,
+                posterUrl = runtime.poster,
+                episodeThumbnailUrl = episodeThumbnail,
+                isPlaying = playbackSnapshot.isPlayingForPresence(
+                    temporarySeekPause = shouldPlay &&
+                        (pausedForTimelineScrub || resumingAfterTimelineScrubForPresence),
+                ),
+                positionMs = playbackSnapshot.positionMs,
+                durationMs = playbackSnapshot.durationMs,
+                imdbId = resolvedImdbIdForPresence,
+                episodeImdbId = resolvedEpisodeImdbIdForPresence,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                isSeries = runtime.isSeries,
+            ),
+        )
+    }
+
+    val currentGestureFeedback = liveGestureFeedback ?: gestureFeedback
+    val isP2pPlaybackActive = activeTorrentInfoHash != null
+    val p2pConnecting = p2pStreamingState as? P2pStreamingState.Connecting
+    val p2pStats = p2pStreamingState as? P2pStreamingState.Streaming
+    val p2pPeerInfo = p2pStats?.let { stats ->
+        org.jetbrains.compose.resources.stringResource(
+            nuvio.composeapp.generated.resources.Res.string.player_torrent_peer_info,
+            stats.seeds,
+            stats.peers,
+        )
+    }
+    val p2pDownloadSpeed = p2pStats?.let { formatP2pSpeed(it.downloadSpeed) }
+    val p2pLoadingBytes = p2pStats?.let { maxOf(it.verifiedBytes, it.downloadedBytes, it.deliveredBytes) } ?: 0L
+    val connectingPeerInfo = p2pConnecting?.let { state ->
+        org.jetbrains.compose.resources.stringResource(
+            nuvio.composeapp.generated.resources.Res.string.player_torrent_peer_info,
+            state.seeds,
+            state.peers,
+        )
+    }
+    val p2pInitialLoadingMessage = when {
+        !isP2pPlaybackActive || initialLoadCompleted -> null
+        p2pConnecting != null -> {
+            if (p2pSettingsUiState.hideTorrentStats) {
+                p2pConnectingPhaseLabel(p2pConnecting.phase)
+            } else {
+                org.jetbrains.compose.resources.stringResource(
+                    nuvio.composeapp.generated.resources.Res.string.player_torrent_connecting_status,
+                    p2pConnectingPhaseLabel(p2pConnecting.phase),
+                    connectingPeerInfo.orEmpty(),
+                    formatP2pSpeed(p2pConnecting.downloadSpeed),
+                )
+            }
+        }
+        p2pStats != null -> {
+            if (p2pSettingsUiState.hideTorrentStats) {
+                null
+            } else {
+                org.jetbrains.compose.resources.stringResource(
+                    nuvio.composeapp.generated.resources.Res.string.player_torrent_loading_status,
+                    formatP2pMegabytes(p2pLoadingBytes),
+                    p2pPeerInfo.orEmpty(),
+                    p2pDownloadSpeed.orEmpty(),
+                )
+            }
+        }
+        else -> org.jetbrains.compose.resources.stringResource(
+            nuvio.composeapp.generated.resources.Res.string.player_torrent_starting_engine,
+        )
+    }
+    val bufferedAheadMs = (playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs)
+        .coerceAtLeast(0L)
+    val p2pInitialLoadingProgress = when {
+        !isP2pPlaybackActive || initialLoadCompleted || p2pStats == null -> null
+        else -> p2pInitialLoadingProgress(
+            bufferedAheadMs = bufferedAheadMs,
+            downloadedBytes = maxOf(p2pStats.verifiedBytes, p2pStats.downloadedBytes),
+            deliveredBytes = p2pStats.deliveredBytes,
+        )
+    }
+    val showHttpInitialLoadingStats = !isP2pPlaybackActive &&
+        !initialLoadCompleted &&
+        activeSourceUrl.isNotBlank() &&
+        playerSettingsUiState.showPlayerLoadingStatus &&
+        playbackSnapshot.downloadSpeedAvailable
+    val httpInitialLoadingMessage = when {
+        !showHttpInitialLoadingStats -> null
+        else -> "⬇ ${formatP2pSpeed(playbackSnapshot.downloadSpeedBytes)}"
+    }
+    val httpInitialLoadingProgress = when {
+        !showHttpInitialLoadingStats -> null
+        else -> httpInitialLoadingProgress(bufferedAheadMs = bufferedAheadMs)
+    }
+    val initialLoadingMessage = p2pInitialLoadingMessage ?: httpInitialLoadingMessage
+    val initialLoadingProgress = p2pInitialLoadingProgress ?: httpInitialLoadingProgress
+    val showP2pRebufferStats = isP2pPlaybackActive &&
+        initialLoadCompleted &&
+        playbackSnapshot.isLoading &&
+        p2pStats != null &&
+        !p2pSettingsUiState.hideTorrentStats
+    val p2pRebufferMessage = when {
+        !showP2pRebufferStats -> null
+        else -> {
+            val bufferedSeconds = ((playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs) / 1000L)
+                .coerceAtLeast(0L)
+            "${bufferedSeconds}s buffered · ${p2pPeerInfo.orEmpty()} · ${p2pDownloadSpeed.orEmpty()}"
+        }
+    }
+    val p2pRebufferProgress = when {
+        !showP2pRebufferStats -> null
+        else -> {
+            val bufferedSeconds = ((playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs) / 1000f)
+                .coerceAtLeast(0f)
+            (bufferedSeconds / 10f).coerceIn(0f, 1f)
+        }
+    }
+    val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activeSourceUrl
+    val initialPositionRequestKey = currentInitialPositionRequestKey()
+    val currentPlayerSurfaceSource = playerSurfaceSourceUrl?.let { sourceUrl ->
+        PlayerSurfaceSource(
+            sourceUrl = sourceUrl,
+            sourceAudioUrl = activeSourceAudioUrl,
+            sourceHeaders = activeSourceHeaders,
+            sourceResponseHeaders = activeSourceResponseHeaders,
+            externalSubtitles = externalSubtitles,
+            streamType = activeStreamType,
+            initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
+            initialPositionRequestKey = initialPositionRequestKey,
+        )
+    }
+    val renderPlayerSurface = shouldRenderPlayerSurface(
+        hasCurrentSource = currentPlayerSurfaceSource != null,
+        hasLifecycleController = playerLifecycleController != null,
+        releaseInFlight = playerReleaseSurfaceRetention.inFlight,
+        desktop = isDesktop,
+    )
+    val openingOverlayWanted = playerSettingsUiState.showLoadingOverlay &&
+        !initialLoadCompleted &&
+        errorMessage == null
+    val episodeText = if (seasonNumber != null && episodeNumber != null && !episodeTitle.isNullOrBlank()) {
+        val displayEpisodeTitle = localizedEpisodeTitle(episodeTitle, episodeNumber) ?: episodeTitle.orEmpty()
+        stringResource(
+            Res.string.compose_player_episode_title_format,
+            seasonNumber,
+            episodeNumber,
+            displayEpisodeTitle,
+        )
+    } else {
+        ""
+    }
+    val allFilterLabel = stringResource(Res.string.collections_tab_all)
+    val playingLabel = stringResource(Res.string.compose_player_playing)
+    val sourceFilters = buildPlayerControlFilters(
+        allLabel = allFilterLabel,
+        selectedFilter = null,
+    )
+    val sourceItems = buildPlayerControlSourceItems()
+    val episodeItems = buildPlayerControlEpisodeItems()
+    val episodeSeasons = buildPlayerControlSeasonItems(episodeItems)
+    val episodeStreamFilters = buildPlayerControlEpisodeStreamFilters(
+        allLabel = allFilterLabel,
+        selectedFilter = null,
+    )
+    val episodeStreamItems = buildPlayerControlEpisodeStreamItems()
+    val playerControlAddonSubtitles = buildPlayerControlAddonSubtitleItems()
+    val playerControlSubtitleSelection = buildPlayerControlSubtitleSelection()
+    val playerControlAutoSyncCues = buildPlayerControlSubtitleCueItems()
+    val themeColors = MaterialTheme.nuvio.colors
+    val selectedEpisodeLabel = episodeStreamsPanelState.selectedEpisode?.let { selected ->
+        val selectedCode = selected.playerControlsEpisodeCode()
+        buildString {
+            append(selectedCode)
+            if (selected.title.isNotBlank()) {
+                if (isNotEmpty()) append(" • ")
+                append(selected.title)
+            }
+        }
+    }.orEmpty()
+    val nativeSkipInterval = activeSkipInterval.takeIf {
+        initialLoadCompleted && !pausedOverlayVisible && !skipIntervalDismissed
+    }
+    val nativeSkipAction = nativeSkipInterval?.internalSkipAction(skipIntervals, playbackSnapshot.durationMs)
+    val nextEpisodeForControls = nextEpisodeInfo.takeIf { 
+        isSeries && (showNextEpisodeCard || nextEpisodeAutoPlaySearching || nextEpisodeAutoPlayCountdown != null) 
+    }
+    val isFillerEnabled by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.enabled
+    }.collectAsStateWithLifecycle()
+
+    val selectedEpisode = episodeStreamsPanelState.selectedEpisode
+    val (selectedEpisodeReleaseDate, selectedEpisodeRating, selectedEpisodeIsFiller, selectedEpisodeIsMixed) = if (selectedEpisode != null) {
+        val episodeVideoId = buildPlaybackVideoId(
+            parentMetaId = parentMetaId,
+            seasonNumber = selectedEpisode.season,
+            episodeNumber = selectedEpisode.episode,
+            fallbackVideoId = selectedEpisode.id,
+        )
+        val isWatched = watchProgressUiState.byVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+            WatchingState.isEpisodeWatched(
+                watchedKeys = watchedUiState.watchedKeys,
+                metaType = parentMetaType,
+                metaId = parentMetaId,
+                episode = selectedEpisode,
+            )
+        val relDate = selectedEpisode.released?.takeIf { it.isNotBlank() }?.let(::formatReleaseDateForDisplay).orEmpty()
+        val rawRating = selectedEpisode.seasonEpisodeKey()?.let { episodeImdbRatings[it] } ?: selectedEpisode.rating
+        val rating = rawRating
+            ?.takeIf { it > 0.0 && metaScreenSettingsUiState.episodeRatingsVisibility.showRating(isWatched) }
+            ?.let(::formatEpisodeRating)
+            .orEmpty()
+        val filler = selectedEpisode.isFiller && isFillerEnabled
+        val mixed = selectedEpisode.isMixed && isFillerEnabled
+        listOf(relDate, rating, filler, mixed)
+    } else {
+        listOf("", "", false, false)
+    }
+
+    val activeEpisodeForSource = if (isSeries) {
+        playerMetaVideos.firstOrNull { it.season == activeSeasonNumber && it.episode == activeEpisodeNumber }
+    } else null
+    val (sourceReleaseDate, sourceRating, sourceIsFiller, sourceIsMixed) = if (isSeries) {
+        if (activeEpisodeForSource != null) {
+            val episodeVideoId = buildPlaybackVideoId(
+                parentMetaId = parentMetaId,
+                seasonNumber = activeEpisodeForSource.season,
+                episodeNumber = activeEpisodeForSource.episode,
+                fallbackVideoId = activeEpisodeForSource.id,
+            )
+            val isWatched = watchProgressUiState.byVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+                WatchingState.isEpisodeWatched(
+                    watchedKeys = watchedUiState.watchedKeys,
+                    metaType = parentMetaType,
+                    metaId = parentMetaId,
+                    episode = activeEpisodeForSource,
+                )
+            val relDate = activeEpisodeForSource.released?.takeIf { it.isNotBlank() }?.let(::formatReleaseDateForDisplay).orEmpty()
+            val rawRating = activeEpisodeForSource.seasonEpisodeKey()?.let { episodeImdbRatings[it] } ?: activeEpisodeForSource.rating
+            val rating = rawRating
+                ?.takeIf { it > 0.0 && metaScreenSettingsUiState.episodeRatingsVisibility.showRating(isWatched) }
+                ?.let(::formatEpisodeRating)
+                .orEmpty()
+            val filler = activeEpisodeForSource.isFiller && isFillerEnabled
+            val mixed = activeEpisodeForSource.isMixed && isFillerEnabled
+            listOf(relDate, rating, filler, mixed)
+        } else {
+            listOf("", "", false, false)
+        }
+    } else {
+        val relDate = metaUiState.meta?.releaseInfo.orEmpty()
+        val rating = metaUiState.meta?.imdbRating.orEmpty()
+        listOf(relDate, rating, false, false)
+    }
+
+    val nextEpisodeStatus = when {
+        nextEpisodeForControls == null -> ""
+        !nextEpisodeForControls.hasAired && !nextEpisodeForControls.unairedMessage.isNullOrBlank() ->
+            nextEpisodeForControls.unairedMessage.orEmpty()
+        nextEpisodeAutoPlaySearching -> stringResource(Res.string.player_next_episode_finding_source)
+        !nextEpisodeAutoPlaySourceName.isNullOrBlank() && nextEpisodeAutoPlayCountdown != null ->
+            stringResource(
+                Res.string.player_next_episode_playing_via_countdown,
+                nextEpisodeAutoPlaySourceName.orEmpty(),
+                nextEpisodeAutoPlayCountdown ?: 0,
+            )
+        else -> ""
+    }
+    val torrentStatsOverlayText = when {
+        isP2pPlaybackActive -> {
+            if (p2pStats != null) {
+                val speed = p2pDownloadSpeed.orEmpty()
+                val peers = p2pPeerInfo.orEmpty()
+                if (speed.isNotBlank() && peers.isNotBlank()) {
+                    "⬇ $speed · $peers"
+                } else {
+                    speed.ifBlank { peers }
+                }
+            } else if (p2pConnecting != null) {
+                val speed = formatP2pSpeed(p2pConnecting.downloadSpeed)
+                val peers = connectingPeerInfo.orEmpty()
+                if (speed.isNotBlank() && peers.isNotBlank()) {
+                    "⬇ $speed · $peers"
+                } else {
+                    speed.ifBlank { peers }
+                }
+            } else {
+                ""
+            }
+        }
+        else -> {
+            if (activeSourceUrl == null || playbackSnapshot.isEnded ||
+                !playbackSnapshot.downloadSpeedAvailable
+            ) {
+                ""
+            } else {
+                val speedBytes = playbackSnapshot.downloadSpeedBytes
+                if (speedBytes > 0L) {
+                    "⬇ ${formatP2pSpeed(speedBytes)}"
+                } else {
+                    "⬇ 0 B/s"
+                }
+            }
+        }
+    }
+    val hasActivePlayerPanel = showAudioModal ||
+        showSubtitleModal ||
+        showVideoSettingsModal ||
+        showSourcesPanel ||
+        showEpisodesPanel ||
+        showSubmitIntroModal ||
+        (pendingP2pSwitch != null)
+    val targetMeta = playerMeta ?: MetaDetailsRepository.peek(parentMetaType, parentMetaId)
+    val resolvedImdbId = extractImdbId(parentMetaId)
+        ?: extractImdbId(targetMeta?.imdbId)
+        ?: extractImdbId(targetMeta?.id)
+        ?: playerMetaVideos.firstNotNullOfOrNull { extractImdbId(it.id) }
+    val resolvedTmdbId = extractTmdbId(parentMetaId)
+        ?: extractTmdbId(targetMeta?.id)
+    val partyControls = if (isDesktop) rememberPartyControlsState() else PlayerControlPartyState()
+    val playerBadges = if (isDesktop) rememberPlayerBadges() else emptyList()
+    val installedSubtitleFonts = remember(showSubtitleModal, subtitleFontsRevision, subtitleStyle.importedFontId) { if (isDesktop) SubtitleFonts.installed() else emptyList() }
+    if (isDesktop) {
+        val importSubtitleFont = rememberSubtitleFontImporter { result ->
+            subtitleFontImportFailed = result.isFailure
+            result.getOrNull()?.let {
+                subtitleFontsRevision++
+                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(importedFontId = it.id))
+            }
+        }
+        LaunchedEffect(subtitleFontImportToken) {
+            if (subtitleFontImportToken > 0) importSubtitleFont()
+        }
+    }
+    val subtitleFontItems = SubtitleFontOptions.map {
+        PlayerControlSubtitleFont(it, subtitleFontLabel(it, installedSubtitleFonts))
+    } + installedSubtitleFonts.map { PlayerControlSubtitleFont(it.id, it.name) }
+    val playbackStatsMetadata = if (isDesktop) {
+        rememberPlaybackStatsMetadata(
+            addonLogo = activeAddonLogo,
+            streamDescription = activeStreamSubtitle,
+            playbackEngine = playerController?.playbackEngine,
+            serverPlayback = serverPlaybackSummary(),
+            audioTrack = audioTracks.firstOrNull { it.index == selectedAudioIndex },
+            subtitleTrack = subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }.takeIf { !useCustomSubtitles },
+            addonSubtitle = selectedAddonSubtitle.takeIf { useCustomSubtitles },
+        )
+    } else null
+    val controlChapters = chapters.mapIndexed { index, chapter ->
+        PlayerControlChapter(
+            startMs = chapter.startMs,
+            title = chapter.title ?: stringResource(Res.string.compose_player_chapter_number, index + 1),
+        )
+    }
+    val playerControlsState = PlayerControlsState(
+        chapters = controlChapters,
+        chaptersLabel = stringResource(Res.string.compose_player_chapters),
+        chaptersPanelTitle = stringResource(Res.string.compose_player_panel_chapters, chapters.size),
+        chapterRemainingTemplate = stringResource(Res.string.compose_player_chapter_remaining, "{time}"),
+        autoSyncedLabel = stringResource(Res.string.autosync_label_synced),
+        playbackStatsMetadata = playbackStatsMetadata,
+        title = title,
+        mediaContentType = mediaClassification.type,
+        isMiniPlayer = args.isMiniPlayer,
+        playerUiMode = playerSettingsUiState.playerUiMode.storageKey,
+        seekPreviewEnabled = playerSettingsUiState.seekPreviewEnabled,
+        seekPreviewWhileDragging = playerSettingsUiState.seekPreviewWhileDragging,
+        seekPreviewWhileHovering = playerSettingsUiState.seekPreviewWhileHovering,
+        seekPreviewWhileKeyboardSeeking = playerSettingsUiState.seekPreviewWhileKeyboardSeeking,
+        seekPreviewThumbnailCount = playerSettingsUiState.seekPreviewThumbnailCount,
+        seekPreviewVttUrl = seekPreviewTrack?.vttUrl.orEmpty(),
+        seekrApiKey = playerSettingsUiState.seekrApiKey,
+        seekrImdbId = resolvedImdbId.orEmpty(),
+        seekrTmdbId = resolvedTmdbId ?: 0,
+        seekrSeason = activeSeasonNumber ?: 0,
+        seekrEpisode = activeEpisodeNumber ?: 0,
+        showSeekbarWhileSeeking = playerSettingsUiState.showSeekbarWhileSeeking,
+        showRemainingTime = playerSettingsUiState.showRemainingTime,
+        eyeFilterEnabled = playerSettingsUiState.eyeFilterEnabled,
+        eyeFilterColor = playerSettingsUiState.eyeFilterColor,
+        eyeFilterOpacity = playerSettingsUiState.eyeFilterOpacity,
+        showPlaybackTimeOverlay = playerSettingsUiState.showClockInPlayer &&
+            (isP2pPlaybackActive || (activeSourceUrl != null && !playbackSnapshot.isEnded)) &&
+            !hasActivePlayerPanel,
+        showTorrentStatsOverlay = p2pSettingsUiState.showTorrentStatsOverlay &&
+            (isP2pPlaybackActive || (activeSourceUrl != null && !playbackSnapshot.isEnded)) &&
+            !hasActivePlayerPanel,
+        torrentStatsText = torrentStatsOverlayText,
+        episodeText = episodeText,
+        streamTitle = activeStreamTitle,
+        providerName = activeProviderName,
+        pauseOverlayEnabled = playerSettingsUiState.pauseOverlayEnabled,
+        pauseOverlayWatchingLabel = stringResource(Res.string.compose_player_youre_watching),
+        pauseOverlayLogo = logo,
+        pauseOverlayEpisodeInfo = if (seasonNumber != null && episodeNumber != null) {
+            stringResource(Res.string.compose_player_episode_code_full, seasonNumber, episodeNumber)
+        } else {
+            ""
+        },
+        pauseOverlayEpisodeTitle = localizedEpisodeTitle(activeEpisodeTitle, activeEpisodeNumber) ?: activeEpisodeTitle.orEmpty(),
+        pauseOverlayDescription = activePauseDescription?.takeUnless { it.isBlank() }.orEmpty(),
+        resizeModeLabel = stringResource(resizeMode.labelRes),
+        playbackSpeedLabel = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
+        animeUpscalerEnabled = playerSettingsUiState.animeUpscalerEnabled,
+        animeUpscalerModeIndex = playerSettingsUiState.animeUpscalerMode.index,
+        animeUpscalerOption = playerSettingsUiState.animeUpscalerOption,
+        svpMotionOption = playerSettingsUiState.svpMotionOption,
+        audioNightModeEnabled = playerSettingsUiState.audioNightModeEnabled,
+        holdToSpeedEnabled = playerSettingsUiState.holdToSpeedEnabled && !partyControls.synced,
+        holdToSpeedValue = playerSettingsUiState.holdToSpeedValue,
+        subtitlesLabel = stringResource(Res.string.compose_player_subs),
+        audioLabel = stringResource(Res.string.compose_player_audio),
+        sourcesLabel = stringResource(Res.string.compose_player_sources),
+        episodesLabel = stringResource(Res.string.compose_player_episodes),
+        externalPlayerLabel = stringResource(Res.string.streams_open_external_player),
+        playLabel = stringResource(Res.string.detail_btn_play),
+        pauseLabel = stringResource(Res.string.compose_action_pause),
+        closeLabel = stringResource(Res.string.compose_player_close),
+        mutedLabel = stringResource(Res.string.compose_player_muted),
+        volumeLevelLabelFormat = stringResource(Res.string.compose_player_volume_level, "%s"),
+        lockLabel = stringResource(Res.string.compose_player_lock_controls),
+        unlockLabel = stringResource(Res.string.compose_player_unlock_controls),
+        submitIntroLabel = stringResource(Res.string.submit_intro_action),
+        videoSettingsLabel = stringResource(Res.string.player_action_video_settings),
+        tapToUnlockLabel = stringResource(Res.string.compose_player_tap_to_unlock),
+        pipLabel = stringResource(Res.string.compose_player_picture_in_picture),
+        pipPlaceholderTitle = stringResource(Res.string.compose_player_pip_placeholder_title),
+        pipRestoreLabel = stringResource(Res.string.compose_player_pip_restore),
+        pipWindowTitle = stringResource(Res.string.compose_player_pip_window_title),
+        minimizeLabel = stringResource(Res.string.compose_player_minimize),
+        playbackErrorTitle = stringResource(Res.string.compose_player_playback_error),
+        playbackErrorMessage = errorMessage.orEmpty(),
+        playbackErrorActionLabel = stringResource(Res.string.compose_player_go_back),
+        sourcesPanelTitle = stringResource(Res.string.compose_player_panel_sources),
+        episodesPanelTitle = stringResource(Res.string.compose_player_panel_episodes),
+        streamsPanelTitle = stringResource(Res.string.compose_player_panel_streams),
+        allFilterLabel = allFilterLabel,
+        reloadLabel = stringResource(Res.string.compose_action_reload),
+        backLabel = stringResource(Res.string.action_back),
+        panelCloseLabel = stringResource(Res.string.action_close),
+        cancelLabel = stringResource(Res.string.action_cancel),
+        playingLabel = playingLabel,
+        noStreamsLabel = stringResource(Res.string.compose_player_no_streams_found),
+        noEpisodesLabel = stringResource(Res.string.compose_player_no_episodes_available),
+        submitIntroPanelTitle = stringResource(Res.string.submit_intro_title),
+        submitIntroSegmentTypeLabel = stringResource(Res.string.submit_intro_segment_type_label),
+        submitIntroSegmentIntroLabel = stringResource(Res.string.submit_intro_segment_intro),
+        submitIntroSegmentRecapLabel = stringResource(Res.string.submit_intro_segment_recap),
+        submitIntroSegmentOutroLabel = stringResource(Res.string.submit_intro_segment_outro),
+        submitIntroStartTimeLabel = stringResource(Res.string.submit_intro_start_time_label),
+        submitIntroEndTimeLabel = stringResource(Res.string.submit_intro_end_time_label),
+        submitIntroCaptureLabel = stringResource(Res.string.submit_intro_capture_button),
+        submitIntroSubmitLabel = stringResource(Res.string.submit_intro_button_submit),
+        p2pConsentTitle = stringResource(Res.string.p2p_consent_title),
+        p2pConsentBody = stringResource(Res.string.p2p_consent_body),
+        p2pConsentEnableLabel = stringResource(Res.string.p2p_consent_enable),
+        p2pConsentCancelLabel = stringResource(Res.string.p2p_consent_cancel),
+        speedPanelTitle = stringResource(Res.string.compose_player_playback_speed),
+        audioTracksPanelTitle = stringResource(Res.string.compose_player_audio_tracks),
+        noAudioTracksLabel = stringResource(Res.string.compose_player_no_audio_tracks_available),
+        subtitlesPanelTitle = stringResource(Res.string.compose_player_subtitles),
+        subtitleLanguagesLabel = stringResource(Res.string.compose_player_languages),
+        subtitleBuiltInTabLabel = stringResource(Res.string.compose_player_built_in),
+        subtitleAddonsTabLabel = stringResource(Res.string.addon_title),
+        subtitleStyleTabLabel = stringResource(Res.string.compose_player_style),
+        forcedLabel = stringResource(Res.string.settings_playback_option_forced),
+        noneLabel = stringResource(Res.string.compose_player_none),
+        fetchSubtitlesLabel = stringResource(Res.string.compose_player_fetch_subtitles),
+        subtitleDelayLabel = stringResource(Res.string.compose_player_subtitle_delay),
+        resetLabel = stringResource(Res.string.compose_player_reset),
+        autoSyncLabel = stringResource(Res.string.compose_player_auto_sync),
+        reloadSmallLabel = stringResource(Res.string.compose_player_reload),
+        captureLineLabel = stringResource(Res.string.compose_player_capture_line),
+        selectAddonSubtitleFirstLabel = stringResource(Res.string.compose_player_select_addon_subtitle_first),
+        loadingSubtitleLinesLabel = stringResource(Res.string.compose_player_loading_lines),
+        fontSizeLabel = stringResource(Res.string.compose_player_font_size),
+        outlineLabel = stringResource(Res.string.compose_player_outline),
+        boldLabel = stringResource(Res.string.compose_player_bold),
+        bottomOffsetLabel = stringResource(Res.string.compose_player_bottom_offset),
+        colorLabel = stringResource(Res.string.compose_player_color),
+        textOpacityLabel = stringResource(Res.string.compose_player_text_opacity),
+        outlineColorLabel = stringResource(Res.string.compose_player_outline_color),
+        fontPicker = PlayerControlSubtitleFonts(
+            label = stringResource(Res.string.subtitle_font),
+            importLabel = stringResource(Res.string.subtitle_font_import),
+            importHint = stringResource(Res.string.subtitle_font_import_hint),
+            importError = stringResource(Res.string.subtitle_font_import_error),
+            doneLabel = stringResource(Res.string.action_done),
+            removeLabel = stringResource(Res.string.subtitle_font_remove, "{name}"),
+            importFailed = subtitleFontImportFailed,
+            items = if (isDesktop) subtitleFontItems else emptyList(),
+        ),
+        noSubtitleLinesFoundLabel = stringResource(Res.string.compose_player_no_subtitle_lines_found),
+        resetDefaultsLabel = stringResource(Res.string.subtitle_reset_appearance),
+        onLabel = stringResource(Res.string.compose_action_on),
+        offLabel = stringResource(Res.string.compose_action_off),
+        themeAccentColor = themeColors.accent.toCssColorString(),
+        themeAccentGradientColors = MaterialTheme.themePalette.accentGradient
+            .takeIf { it.size > 1 }
+            .orEmpty()
+            .map { it.toCssColorString() },
+        themeAccentStrongColor = themeColors.accentStrong.toCssColorString(),
+        themeOnAccentColor = themeColors.onAccent.toCssColorString(),
+        themeFocusColor = themeColors.focusRing.toCssColorString(),
+        themeSelectedSurfaceColor = themeColors.accent.copy(alpha = 0.24f).toCssColorString(),
+        themeSelectedSurfaceHoverColor = themeColors.accent.copy(alpha = 0.34f).toCssColorString(),
+        themeSelectedRingColor = themeColors.accent.copy(alpha = 0.35f).toCssColorString(),
+        themeTimelineFillColor = themeColors.playerTimelineFill.toCssColorString(),
+        themeTimelineTrackColor = themeColors.playerTimelineTrack.toCssColorString(),
+        themeBufferingColor = themeColors.playerBuffering.toCssColorString(),
+        themeBufferingTrackColor = themeColors.playerBuffering.copy(alpha = 0.35f).toCssColorString(),
+        themeControlForegroundColor = themeColors.playerControlsForeground.toCssColorString(),
+        themeSurfaceElevatedColor = themeColors.surfaceElevated.toCssColorString(),
+        themeSurfaceCardColor = themeColors.surfaceCard.toCssColorString(),
+        themeSurfacePopoverColor = themeColors.surfacePopover.toCssColorString(),
+        themeTextPrimaryColor = themeColors.textPrimary.toCssColorString(),
+        themeTextSecondaryColor = themeColors.textSecondary.toCssColorString(),
+        themeTextMutedColor = themeColors.textMuted.toCssColorString(),
+        themeBorderDefaultColor = themeColors.borderDefault.toCssColorString(),
+        themeDangerColor = themeColors.danger.toCssColorString(),
+        playback = PlayerControlPlaybackState(
+            isPlaying = playbackSnapshot.isPlaying,
+            isEnded = playbackSnapshot.isEnded,
+            isLoading = playbackSnapshot.isLoading,
+        ),
+        isLocked = playerControlsLocked,
+        lockedOverlayVisible = lockedOverlayVisible,
+        controlsVisible = !args.isMiniPlayer && controlsVisible && !playerControlsLocked,
+        parentalWarnings = parentalWarnings,
+        showParentalGuide = showParentalGuide,
+        showSubmitIntro = isSeries &&
+            playerSettingsUiState.introSubmitEnabled &&
+            playerSettingsUiState.introDbApiKey.isNotBlank() &&
+            !activeSubmitIntroImdbId().isNullOrBlank(),
+        showVideoSettings = isIos,
+        showSources = activeVideoId != null,
+        showEpisodes = isSeries,
+        showExternalPlayer = args.onOpenInExternalPlayer != null,
+        durationMs = playbackSnapshot.durationMs,
+        positionMs = displayedPositionMs,
+        bufferedPositionMs = playbackSnapshot.bufferedPositionMs.coerceAtLeast(0L),
+        sourceIsLoading = sourceStreamsState.isAnyLoading,
+        sourceFilters = sourceFilters,
+        sourceItems = sourceItems,
+        sourceReleaseDate = sourceReleaseDate as? String ?: "",
+        sourceRating = sourceRating as? String ?: "",
+        sourceIsFiller = sourceIsFiller as? Boolean ?: false,
+        sourceIsMixed = sourceIsMixed as? Boolean ?: false,
+        episodeItems = episodeItems,
+        episodeSeasons = episodeSeasons,
+        episodeStreamsVisible = episodeStreamsPanelState.showStreams,
+        episodeStreamsIsLoading = episodeStreamsRepoState.isAnyLoading,
+        selectedEpisodeLabel = selectedEpisodeLabel,
+        selectedEpisodeReleaseDate = selectedEpisodeReleaseDate as? String ?: "",
+        selectedEpisodeRating = selectedEpisodeRating as? String ?: "",
+        selectedEpisodeIsFiller = selectedEpisodeIsFiller as? Boolean ?: false,
+        selectedEpisodeIsMixed = selectedEpisodeIsMixed as? Boolean ?: false,
+        episodeStreamFilters = episodeStreamFilters,
+        episodeStreamItems = episodeStreamItems,
+        blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
+        submitIntroSegmentType = submitIntroSegmentType,
+        submitIntroContentKey = activeSubmitIntroContentKey(),
+        submitIntroStartTime = submitIntroStartTimeStr,
+        submitIntroEndTime = submitIntroEndTimeStr,
+        isSubmitIntroSubmitting = isSubmitIntroSubmitting,
+        submitIntroStatusMessage = submitIntroStatusMessage.orEmpty(),
+        showP2pConsent = playerControlsPendingP2pSwitch != null,
+        subtitleActiveTab = activeSubtitleTab.name,
+        subtitleLanguageItems = playerControlSubtitleSelection.languages,
+        subtitleOptionItems = playerControlSubtitleSelection.options,
+        selectedSubtitleLanguageKey = playerControlSubtitleSelection.selectedLanguageKey,
+        selectedSubtitleOptionId = playerControlSubtitleSelection.selectedOptionId,
+        addonSubtitleItems = playerControlAddonSubtitles,
+        isLoadingAddonSubtitles = isLoadingAddonSubtitles,
+        selectedAddonSubtitleId = selectedAddonSubtitleId.orEmpty(),
+        useCustomSubtitles = useCustomSubtitles,
+        subtitleAppearance = PlayerControlSubtitleAppearance(
+            style = subtitleStyle,
+            customStyleLabel = stringResource(Res.string.compose_player_use_custom_styling),
+            customStylingEnabled = !playerSettingsUiState.useLibass,
+        ),
+        subtitleDelayMs = subtitleDelayMs,
+        hasSelectedAddonSubtitle = selectedAddonSubtitle != null,
+        subtitleAutoSyncCapturedPositionMs = subtitleAutoSyncState.capturedPositionMs ?: -1L,
+        subtitleAutoSyncCues = playerControlAutoSyncCues,
+        subtitleAutoSyncIsLoading = subtitleAutoSyncState.isLoading,
+        subtitleAutoSyncErrorMessage = subtitleAutoSyncState.errorMessage.orEmpty(),
+        closeModalsToken = playerControlsCloseModalsToken,
+        submitIntroSuccessToken = playerControlsSubmitIntroSuccessToken,
+        notificationMessage = playerNotificationMessage,
+        notificationToken = playerNotificationToken,
+        party = partyControls,
+        badges = playerBadges,
+        showOpeningOverlay = openingOverlayWanted,
+        openingArtwork = background ?: poster,
+        openingLogo = logo,
+        openingTitle = title,
+        openingMessage = if (playerSettingsUiState.showPlayerLoadingStatus) {
+            initialLoadingMessage ?: playerLoadingStatusMessage(
+                showStatus = true,
+                controllerReady = playerController != null,
+                buffering = playbackSnapshot.isLoading,
+            )
+        } else null,
+        openingProgress = initialLoadingProgress,
+        skipPromptVisible = nativeSkipInterval != null && !playerControlsLocked,
+        skipPromptLabel = if (nativeSkipAction?.skipsToPostCredits == true) {
+            stringResource(Res.string.player_skip_to_post_credits)
+        } else {
+            skipPromptLabel(nativeSkipInterval?.type)
+        },
+        skipPromptStartMs = ((nativeSkipInterval?.startTime ?: 0.0) * 1000).toLong().coerceAtLeast(0L),
+        skipPromptEndMs = nativeSkipAction?.targetMs?.coerceAtLeast(0L) ?: 0L,
+        skipPromptDismissed = skipIntervalDismissed,
+        nextEpisodeVisible = nextEpisodeForControls != null && !playerControlsLocked,
+        nextEpisodeHeaderLabel = stringResource(Res.string.player_next_episode),
+        nextEpisodeTitle = nextEpisodeForControls?.let {
+            stringResource(
+                Res.string.compose_player_episode_title_format,
+                it.season,
+                it.episode,
+                it.title,
+            )
+        }.orEmpty(),
+        nextEpisodeThumbnail = nextEpisodeForControls?.thumbnail.orEmpty(),
+        nextEpisodeThumbnailBlurred = metaScreenSettingsUiState.blurUnwatchedEpisodes && nextEpisodeInfo?.isWatched == false,
+        nextEpisodeStatus = nextEpisodeStatus,
+        nextEpisodeActionLabel = if (nextEpisodeForControls?.hasAired == true) {
+            stringResource(Res.string.detail_btn_play)
+        } else {
+            stringResource(Res.string.player_next_episode_unaired)
+        },
+        nextEpisodePlayable = nextEpisodeInfo?.hasAired == true,
+        nextEpisodeIsFiller = isFillerEnabled && nextEpisodeForControls?.isFiller == true,
+        nextEpisodeIsMixed = isFillerEnabled && nextEpisodeForControls?.isMixed == true,
+    )
+    val gestureCallbacks = rememberSurfaceGestureCallbacks()
+    val fold = LocalFold.current?.takeIf { !isInPip && !args.isMiniPlayer }
+    val videoModifier = if (fold != null) Modifier.fillMaxWidth().height(fold.top) else Modifier.fillMaxSize()
+    val panelModifier = if (fold != null) Modifier.fillMaxSize().padding(top = fold.bottom) else Modifier.fillMaxSize()
+    val playbackGesturesEnabled = !args.isMiniPlayer && !isDesktop && !isInPip && initialLoadCompleted && errorMessage == null
+    val enableSurfaceGestures = !args.isMiniPlayer && !isDesktop && !isInPip
+
+    BindAutoSyncRuntimeEffects() // AutoSync hook
+
+    val focusManager = LocalFocusManager.current
+    val wasMiniPlayer = remember { mutableStateOf(args.isMiniPlayer) }
+    LaunchedEffect(args.isMiniPlayer) {
+        val returningFromMini = wasMiniPlayer.value && !args.isMiniPlayer
+        wasMiniPlayer.value = args.isMiniPlayer
+        if (returningFromMini) {
+            focusManager.clearFocus(force = true)
+            playerController?.requestKeyboardFocus()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(end = partyPanelInset)
+            .clipToBounds()
+            .then(
+                if (args.isMiniPlayer) {
+                    Modifier
+                        .clip(RectangleShape)
+                        .background(MaterialTheme.nuvio.colors.surfaceElevated)
+                } else {
+                    Modifier.background(Color.Black)
+                }
+            ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (args.isMiniPlayer) {
+                        Modifier
+                            .weight(1f)
+                            .clip(RectangleShape)
+                    } else {
+                        Modifier.fillMaxHeight()
+                    }
+                )
+                .onSizeChanged { layoutSize = it }
+                .then(
+                if (enableSurfaceGestures) {
+                    Modifier
+                        .playerSurfaceTapGestures(
+                            layoutSize = layoutSize,
+                            playbackGesturesEnabled = playbackGesturesEnabled,
+                            playerControlsLockedState = gestureCallbacks.playerControlsLocked,
+                            onSurfaceTap = gestureCallbacks.onSurfaceTap,
+                            onSurfaceDoubleTap = gestureCallbacks.onSurfaceDoubleTap,
+                            activateHoldToSpeedState = gestureCallbacks.activateHoldToSpeed,
+                            deactivateHoldToSpeedState = gestureCallbacks.deactivateHoldToSpeed,
+                            revealLockedOverlayState = gestureCallbacks.revealLockedOverlay,
+                        )
+                        .playerSurfaceDragGestures(
+                            gestureController = gestureController,
+                            layoutSize = layoutSize,
+                            playbackGesturesEnabled = playbackGesturesEnabled,
+                            sideGestureSystemEdgeExclusionPx = sideGestureSystemEdgeExclusionPx,
+                            horizontalSeekSystemEdgeExclusionPx = horizontalSeekSystemEdgeExclusionPx,
+                            playerControlsLockedState = gestureCallbacks.playerControlsLocked,
+                            touchGesturesEnabledState = gestureCallbacks.touchGesturesEnabled,
+                            isHoldToSpeedGestureActiveState = gestureCallbacks.isHoldToSpeedGestureActive,
+                            currentPositionMsState = gestureCallbacks.currentPositionMs,
+                            currentDurationMsState = gestureCallbacks.currentDurationMs,
+                            deactivateHoldToSpeedState = gestureCallbacks.deactivateHoldToSpeed,
+                            showHorizontalSeekPreviewState = gestureCallbacks.showHorizontalSeekPreview,
+                            showBrightnessFeedbackState = gestureCallbacks.showBrightnessFeedback,
+                            showVolumeFeedbackState = gestureCallbacks.showVolumeFeedback,
+                            clearLiveGestureFeedbackState = gestureCallbacks.clearLiveGestureFeedback,
+                            revealLockedOverlayState = gestureCallbacks.revealLockedOverlay,
+                            commitHorizontalSeekState = gestureCallbacks.commitHorizontalSeek,
+                        )
+                } else {
+                    Modifier
+                }
+            ),
+    ) {
+        val playbackKey = activePlaybackKey
+        val sourcePlaybackKey = playbackKey.copy(playbackEngine = null)
+        val initialPositionRequestKey = currentInitialPositionRequestKey()
+
+        val resolvedAutoEngineState = remember(sourcePlaybackKey) {
+            mutableStateOf<AndroidPlaybackEngine?>(null)
+        }
+        if (!initialLoadCompleted || resolvedAutoEngineState.value == null) {
+            resolvedAutoEngineState.value = resolveAutoPlaybackEngine(
+                playbackEngineSetting = playerSettingsUiState.androidPlaybackEngine,
+                videoId = activeVideoId,
+                streamFilename = activeTorrentFilename ?: activeStreamFilename,
+                streamName = activeStreamTitle,
+                streamDescription = activeStreamSubtitle,
+                contentTitle = title,
+                genres = playerMeta?.genres.orEmpty(),
+                country = playerMeta?.country,
+            )
+        }
+        val resolvedAutoEngine = resolvedAutoEngineState.value
+
+        if (renderPlayerSurface) {
+            val surfaceSource = currentPlayerSurfaceSource
+            val sourceAvailable = surfaceSource != null
+            PlatformPlayerSurface(
+                sourceUrl = surfaceSource?.sourceUrl.orEmpty(),
+                sourceAvailable = sourceAvailable,
+                sourceAudioUrl = surfaceSource?.sourceAudioUrl,
+                sourceHeaders = surfaceSource?.sourceHeaders.orEmpty(),
+                sourceResponseHeaders = surfaceSource?.sourceResponseHeaders.orEmpty(),
+                externalSubtitles = surfaceSource?.externalSubtitles.orEmpty(),
+                streamType = surfaceSource?.streamType,
+                modifier = videoModifier,
+                playWhenReady = shouldPlay && sourceAvailable,
+                initialPositionMs = surfaceSource?.initialPositionMs,
+                initialPositionRequestKey = surfaceSource?.initialPositionRequestKey,
+                resizeMode = if (partyPanelInset > 0.dp) PlayerResizeMode.Fit else resizeMode,
+                playbackEngine = playbackEngineOverride ?: resolvedAutoEngine,
+                playerControlsState = playerControlsState,
+                onPlayerControlsAction = { action -> handlePlayerControlsAction(action) },
+                onPlayerControlsEvent = { type, value -> handlePlayerControlsEvent(type, value) },
+                onPlayerControlsScrubChange = { positionMs ->
+                    handlePlayerControlsScrubChange(positionMs)
+                    true
+                },
+                onPlayerControlsScrubFinished = { positionMs ->
+                    handlePlayerControlsScrubFinished(positionMs)
+                    true
+                },
+                onInitialPositionHandled = { key, handled ->
+                    if (key == currentInitialPositionRequestKey()) {
+                        initialSeekApplied = handled
+                    }
+                },
+                onControllerReady = { controller ->
+                    playerController = controller.takeIf { sourceAvailable }
+                    playerLifecycleController = controller
+                    playerControllerSourceUrl = surfaceSource?.sourceUrl
+                },
+                onSnapshot = { snapshot ->
+                    val wasEnded = playbackSnapshotKey == activePlaybackKey && playbackSnapshot.isEnded
+                    if (!updatePlaybackSnapshot(snapshot)) return@PlatformPlayerSurface
+                    refreshAudioTracksIfChanged()
+                    if (!snapshot.isLoading) initialLoadCompleted = true
+                    if (snapshot.isEnded && !wasEnded) {
+                        shouldPlay = false
+                        controlsVisible = !playerControlsLocked
+                    }
+                },
+                onError = { message ->
+                    if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
+                        return@PlatformPlayerSurface
+                    }
+                    if (message != null && !isDesktop && maybeFailoverPlaybackEngine(resolvedAutoEngine)) {
+                        return@PlatformPlayerSurface
+                    }
+                    errorMessage = message
+                    if (message != null) {
+                        scrubbingPositionMs = null
+                        controlsVisible = !playerControlsLocked
+                        removeFailedStreamFromCache()
+                    }
+                },
+            )
+        }
+
+        if (!args.isMiniPlayer) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = playerSettingsUiState.pauseOverlayEnabled && pausedOverlayVisible && !playbackSnapshot.isPlaying && !playbackSnapshot.isEnded && !controlsVisible && !playerControlsLocked && !isInPip && fold == null,
+                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 180)),
+            ) {
+                PauseMetadataOverlay(
+                    title = title,
+                    logo = logo,
+                    isEpisode = isEpisode,
+                    seasonNumber = activeSeasonNumber,
+                    episodeNumber = activeEpisodeNumber,
+                    episodeTitle = activeEpisodeTitle,
+                    pauseDescription = activePauseDescription?.takeUnless { it.isBlank() },
+                    providerName = activeProviderName,
+                    metrics = metrics,
+                    horizontalSafePadding = horizontalSafePadding,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            if (!isDesktop) {
+                RenderPlayerControls(
+                    displayedPositionMs = displayedPositionMs,
+                    isEpisode = isEpisode,
+                    folded = fold != null,
+                    modifier = panelModifier,
+                )
+            }
+            Box(modifier = videoModifier) {
+                RenderPlaybackOverlays(
+                    runtime = runtime,
+                    displayedPositionMs = displayedPositionMs,
+                    currentGestureFeedback = currentGestureFeedback,
+                    initialLoadingMessage = initialLoadingMessage,
+                    initialLoadingProgress = initialLoadingProgress,
+                    showP2pRebufferStats = showP2pRebufferStats,
+                    p2pRebufferMessage = p2pRebufferMessage,
+                    p2pRebufferProgress = p2pRebufferProgress,
+                    suppressOpeningOverlay = isDesktop && playerSurfaceSourceUrl != null,
+                    folded = fold != null,
+                )
+            }
+        }
+    }
+
+        if (args.isMiniPlayer) {
+            val miniSubtitle = if (isEpisode) {
+                val base = "S${seasonNumber}E${episodeNumber}"
+                val displayTitle = localizedEpisodeTitle(episodeTitle, episodeNumber)
+                if (!displayTitle.isNullOrBlank()) "$base • $displayTitle" else base
+            } else {
+                activeStreamTitle.ifBlank { activeProviderName }
+            }
+
+            InAppMiniPlayerControls(
+                title = title,
+                subtitle = miniSubtitle,
+                isPlaying = playbackSnapshot.isPlaying,
+                progressFraction = if (playbackSnapshot.durationMs > 0L) {
+                    (displayedPositionMs.toFloat() / playbackSnapshot.durationMs.toFloat()).coerceIn(0f, 1f)
+                } else 0f,
+                onTogglePlayback = { togglePlayback() },
+                onExpand = { args.onExpand?.invoke() },
+                onClose = { args.onClose?.invoke() },
+            )
+        }
+    }
+
+    if (!args.isMiniPlayer) {
+        Box(modifier = panelModifier) {
+            if (!isDesktop) {
+                RenderParty(
+                    runtime = runtime,
+                    panelWidth = partyPanelWidth,
+                    modal = !dockPartyPanel,
+                    panelVisible = showPartyPanel && !isInPip,
+                )
+            }
+            RenderPlayerModals(displayedPositionMs = displayedPositionMs)
+        }
+    }
+}
+
+@Composable
+private fun p2pConnectingPhaseLabel(phase: String): String = when (phase) {
+    "add_magnet" -> org.jetbrains.compose.resources.stringResource(
+        nuvio.composeapp.generated.resources.Res.string.player_torrent_fetching_metadata,
+    )
+    "prepare_stream", "attach_route" -> org.jetbrains.compose.resources.stringResource(
+        nuvio.composeapp.generated.resources.Res.string.player_torrent_preparing_stream,
+    )
+    else -> org.jetbrains.compose.resources.stringResource(
+        nuvio.composeapp.generated.resources.Res.string.player_torrent_starting_engine,
+    )
+}
+
+private val PlayerScreenRuntime.activeAddonLogo: String?
+    get() = addonsUiState.addons.firstNotNullOfOrNull { addon ->
+        addon.manifest?.takeIf { addon.streamAddonInstanceId(it.id) == activeProviderAddonId }?.logoUrl
+    }
+
+private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
+    val positionMs = activeInitialPositionMs.takeIf { it > 0L } ?: return null
+    return "$activePlaybackIdentity:${activeVideoId.orEmpty()}:$positionMs"
+}
+
+@Composable
+private fun PlayerScreenRuntime.RenderPlayerControls(
+    displayedPositionMs: Long,
+    isEpisode: Boolean,
+    folded: Boolean,
+    modifier: Modifier,
+) {
+    val isInPip = rememberIsInPictureInPicture()
+    val partyState by PartyRepository.state.collectAsStateWithLifecycle()
+    val partyActive = partyState.party != null
+    val playerBadges = if (isDesktop) emptyList() else rememberPlayerBadges()
+    val subtitleDelayToastLabel = stringResource(Res.string.compose_player_subtitle_delay)
+    LaunchedEffect(playerSettingsUiState.seekPreviewEnabled, playerSettingsUiState.playerUiMode, isInPip, args.isMiniPlayer) {
+        seekPreviewInteraction.clear()
+    }
+    DisposableEffect(Unit) {
+        onDispose { seekPreviewInteraction.clear() }
+    }
+    LaunchedEffect(folded) {
+        if (folded) {
+            controlsVisible = true
+            showParentalGuide = false
+        }
+    }
+    AnimatedVisibility(
+        visible = (controlsVisible || folded || showParentalGuide) && !playerControlsLocked && !isInPip &&
+            !(folded && isPanelOpen),
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        CompositionLocalProvider(LocalSeekPreviewInteraction provides seekPreviewInteraction) {
+            PlayerControlsShell(
+                title = title,
+                streamTitle = activeStreamTitle,
+                providerName = activeProviderName,
+                seasonNumber = activeSeasonNumber,
+                episodeNumber = activeEpisodeNumber,
+                episodeTitle = activeEpisodeTitle,
+                playbackSnapshot = playbackSnapshot,
+                displayedPositionMs = displayedPositionMs,
+                metrics = metrics,
+                resizeMode = resizeMode,
+                isLocked = playerControlsLocked,
+                useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
+                showRemainingTime = playerSettingsUiState.showRemainingTime,
+                onRuntimeClick = { PlayerSettingsRepository.setShowRemainingTime(!playerSettingsUiState.showRemainingTime) },
+                releaseInfo = metaUiState.meta?.takeIf { it.id == parentMetaId }?.releaseInfo,
+                badges = playerBadges,
+                hideDetails = activeSkipInterval != null && !skipIntervalDismissed,
+                onNextEpisodeClick = if (nextEpisodeInfo?.hasAired == true && !nextEpisodeAutoPlaySearching && nextEpisodeAutoPlayCountdown == null) {
+                    {
+                        if (!partyBlocksControl()) playNextEpisode()
+                    }
+                } else null,
+                onInteraction = { controlsActivityTick += 1 },
+                showPlaybackControls = controlsVisible,
+                onLockToggle = {
+                    if (playerControlsLocked) unlockPlayerControls() else lockPlayerControls()
+                },
+                onBack = { requestBack() },
+                onPartyClick = if (PartyRepository.available.collectAsStateWithLifecycle().value) {
+                    { openPartyPanel() }
+                } else {
+                    null
+                },
+                partyActive = partyActive,
+                onTogglePlayback = { togglePlayback() },
+                onSeekBack = { seekBy(-3_000L) },
+                onSeekForward = { seekBy(3_000L) },
+                onResizeModeClick = { cycleResizeMode() },
+                onSpeedClick = { cyclePlaybackSpeed() },
+                onSubtitleClick = {
+                    refreshTracks()
+                    showSubtitleModal = true
+                },
+                onAudioClick = {
+                    refreshTracks()
+                    showAudioModal = true
+                },
+                onVideoSettingsClick = if (isIos) {
+                    {
+                        showVideoSettingsModal = true
+                        controlsVisible = true
+                    }
+                } else {
+                    null
+                },
+                onSourcesClick = if (activeVideoId != null) { { openSourcesPanel() } } else null,
+                onEpisodesClick = if (isSeries) { { openEpisodesPanel() } } else null,
+                chapters = chapters,
+                onChaptersClick = if (chapters.isNotEmpty()) { { openChaptersPanel() } } else null,
+                onOpenInExternalPlayer = args.onOpenInExternalPlayer
+                    ?.takeUnless { ServerStreams.isServerSourceId(activeProviderAddonId) }
+                    ?.let { openExternal ->
+                    {
+                        val loadedSubtitles = addonSubtitles
+                            .takeIf { it.isNotEmpty() }
+                            ?.map { sub ->
+                                SubtitleInput(
+                                    url = sub.url,
+                                    name = buildString {
+                                        if (!sub.addonName.isNullOrBlank()) append("[${sub.addonName}] ")
+                                        append(sub.display)
+                                    },
+                                    lang = sub.language,
+                                )
+                            }
+                        PlayerStreamsRepository.pauseSearchForPlayback()
+                        openExternal(
+                            ExternalPlayerPlaybackRequest(
+                                sourceUrl = activeSourceUrl,
+                                title = title,
+                                streamTitle = activeStreamTitle,
+                                sourceHeaders = activeSourceHeaders,
+                                resumePositionMs = playbackSnapshot.positionMs,
+                                durationMs = playbackSnapshot.durationMs.takeIf { it > 0L },
+                                playbackSession = playbackSession,
+                                subtitles = loadedSubtitles,
+                                season = activeSeasonNumber,
+                                episode = activeEpisodeNumber,
+                                episodeTitle = activeEpisodeTitle,
+                            ),
+                        )
+                    }
+                },
+                onSubmitIntroClick = if (
+                    isSeries &&
+                    playerSettingsUiState.introSubmitEnabled &&
+                    playerSettingsUiState.introDbApiKey.isNotBlank()
+                ) {
+                    { showSubmitIntroModal = true }
+                } else {
+                    null
+                },
+                onSwitchEngineClick = if (playerController?.playbackEngine != null) {
+                    { showSwitchEngineConfirm = true }
+                } else {
+                    null
+                },
+                onStreamInfoClick = { openStreamInfo() },
+                parentalWarnings = parentalWarnings,
+                showParentalGuide = showParentalGuide,
+                onParentalGuideAnimationComplete = { showParentalGuide = false },
+                seekPreviewContent = if (playerSettingsUiState.seekPreviewEnabled) {
+                    {
+                        SeekPreviewFilmstripOverlay(
+                            track = seekPreviewTrack,
+                            scrubPositionMs = when {
+                                seekPreviewInteraction.dragging -> scrubbingPositionMs ?: seekPreviewInteraction.hoverPositionMs
+                                seekPreviewInteraction.keyboardPositionMs != null -> seekPreviewInteraction.keyboardPositionMs
+                                else -> seekPreviewInteraction.hoverPositionMs
+                            },
+                            isVisible = !isInPip && !args.isMiniPlayer && when {
+                                seekPreviewInteraction.dragging -> playerSettingsUiState.seekPreviewWhileDragging
+                                seekPreviewInteraction.keyboardPositionMs != null -> playerSettingsUiState.seekPreviewWhileKeyboardSeeking
+                                else -> seekPreviewInteraction.hoverPositionMs != null && playerSettingsUiState.seekPreviewWhileHovering
+                            },
+                            thumbnailCount = playerSettingsUiState.seekPreviewThumbnailCount,
+                            durationMs = playbackSnapshot.durationMs,
+                            timelineLeft = seekPreviewInteraction.timelineLeft,
+                            timelineWidth = seekPreviewInteraction.timelineWidth,
+                        )
+                    }
+                } else null,
+                onScrubChange = { positionMs ->
+                    if (!isScrubbingTimeline && playbackSnapshot.isPlaying) {
+                        pausedForTimelineScrub = true
+                        playerController?.pause()
+                    }
+                    isScrubbingTimeline = true
+                    scrubbingPositionMs = positionMs
+                },
+                onScrubFinished = { positionMs -> finishTimelineSeek(positionMs) },
+                horizontalSafePadding = horizontalSafePadding,
+                onMinimize = args.onMinimize,
+                modifier = modifier.onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        when (event.key) {
+                            Key.G -> {
+                                val newDelay = (subtitleDelayMs - SUBTITLE_DELAY_STEP_MS).coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
+                                setSubtitleDelay(newDelay)
+                                NuvioToastController.show("$subtitleDelayToastLabel ${formatSubtitleDelay(newDelay)}")
+                                return@onKeyEvent true
+                            }
+                            Key.H -> {
+                                val newDelay = (subtitleDelayMs + SUBTITLE_DELAY_STEP_MS).coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
+                                setSubtitleDelay(newDelay)
+                                NuvioToastController.show("$subtitleDelayToastLabel ${formatSubtitleDelay(newDelay)}")
+                                return@onKeyEvent true
+                            }
+                        }
+                    }
+                    val offset = seekPreviewKeyboardOffset(event)
+                    if (offset == null) false else {
+                        seekBy(offset, revealControls = false)
+                        pendingSeekTarget?.first?.let { seekPreviewInteraction.keyboard(it, scope) }
+                        true
+                    }
+                },
+                foldLayout = folded,
+                gestureController = gestureController,
+                onWake = {
+                    controlsVisible = true
+                    controlsActivityTick += 1
+                },
+            )
+        }
+    }
+    AnimatedVisibility(
+        visible = folded && playerControlsLocked && !isInPip,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        FoldLockedControls(
+            onUnlock = { unlockPlayerControls() },
+            modifier = modifier,
+        )
+    }
+}
+
+internal fun releasePlayerBeforeNavigation(
+    releasePlayer: (
+        onReleased: () -> Unit,
+        onReleaseFailed: (String) -> Unit,
+    ) -> Unit,
+    navigateBack: () -> Unit,
+    onReleaseFailed: (String) -> Unit = {},
+) {
+    releasePlayer(navigateBack, onReleaseFailed)
+}
+
+internal fun releaseRetainedPlayerBeforeNavigation(
+    controller: PlayerEngineController?,
+    navigateBack: () -> Unit,
+    onReleaseFailed: (String) -> Unit = {},
+) {
+    if (controller == null) {
+        navigateBack()
+    } else {
+        controller.releaseBeforeNavigation(navigateBack, onReleaseFailed)
+    }
+}
+
+private fun PlayerScreenRuntime.requestBack() {
+    flushWatchProgress()
+    val exitingController = playerLifecycleController
+    args.onBack { afterRelease, releaseFailed ->
+        val releaseAttemptId = playerReleaseSurfaceRetention.begin()
+        try {
+            releaseRetainedPlayerBeforeNavigation(
+                controller = exitingController,
+                navigateBack = {
+                    if (!playerReleaseSurfaceRetention.finish(releaseAttemptId)) {
+                        return@releaseRetainedPlayerBeforeNavigation
+                    }
+                    if (playerLifecycleController === exitingController) {
+                        playerLifecycleController = null
+                    }
+                    if (playerController === exitingController) {
+                        playerController = null
+                    }
+                    afterRelease()
+                },
+                onReleaseFailed = { message ->
+                    if (!playerReleaseSurfaceRetention.finish(releaseAttemptId)) {
+                        return@releaseRetainedPlayerBeforeNavigation
+                    }
+                    errorMessage = message
+                    releaseFailed(message)
+                },
+            )
+        } catch (failure: Throwable) {
+            playerReleaseSurfaceRetention.finish(releaseAttemptId)
+            throw failure
+        }
+    }
+}
+
+private fun PlayerScreenRuntime.handlePlayerControlsAction(action: PlayerControlsAction): Boolean {
+    playerControlsLog.d { "action=$action ${playerControlLogContext()}" }
+    when (action) {
+        PlayerControlsAction.ToggleChrome -> {
+            if (playerControlsLocked) {
+                revealLockedOverlay()
+            } else {
+                controlsVisible = !controlsVisible
+            }
+        }
+        PlayerControlsAction.RevealLockedOverlay -> revealLockedOverlay()
+        PlayerControlsAction.Back -> requestBack()
+        PlayerControlsAction.TogglePlayback -> {
+            return toggleFromNativeControls()
+        }
+        PlayerControlsAction.KeyboardTogglePlayback -> {
+            return toggleFromNativeControls(revealControls = false)
+        }
+        PlayerControlsAction.SeekBack -> {
+            return seekFromNativeControls(-3_000L)
+        }
+        PlayerControlsAction.KeyboardSeekBack -> {
+            return seekFromNativeControls(-3_000L, revealControls = false)
+        }
+        PlayerControlsAction.KeyboardSeek10Back -> {
+            return seekFromNativeControls(-10_000L, revealControls = false)
+        }
+        PlayerControlsAction.SeekForward -> {
+            return seekFromNativeControls(3_000L)
+        }
+        PlayerControlsAction.KeyboardSeekForward -> {
+            return seekFromNativeControls(3_000L, revealControls = false)
+        }
+        PlayerControlsAction.KeyboardSeek10Forward -> {
+            return seekFromNativeControls(10_000L, revealControls = false)
+        }
+        PlayerControlsAction.KeyboardFineSeekBack -> {
+            return seekFromNativeControls(-1_000L, revealControls = false)
+        }
+        PlayerControlsAction.KeyboardFineSeekForward -> {
+            return seekFromNativeControls(1_000L, revealControls = false)
+        }
+        PlayerControlsAction.KeyboardVolumeDown,
+        PlayerControlsAction.KeyboardVolumeUp -> {
+            return false
+        }
+        PlayerControlsAction.ResizeMode -> cycleResizeMode()
+        PlayerControlsAction.Speed -> cyclePlaybackSpeed()
+        PlayerControlsAction.Subtitles -> {
+            refreshTracks()
+            showSubtitleModal = true
+        }
+        PlayerControlsAction.Audio -> {
+            refreshTracks()
+            showAudioModal = true
+        }
+        PlayerControlsAction.Sources -> {
+            prepareSourcesForPlayerControls()
+        }
+        PlayerControlsAction.Episodes -> {
+            prepareEpisodesForPlayerControls()
+        }
+        PlayerControlsAction.OpenExternalPlayer -> openInExternalPlayer()
+        PlayerControlsAction.SubmitIntro -> {
+            submitIntroStatusMessage = null
+        }
+        PlayerControlsAction.LockToggle -> {
+            if (playerControlsLocked) unlockPlayerControls() else lockPlayerControls()
+        }
+        PlayerControlsAction.VideoSettings -> {
+            if (isIos) {
+                showVideoSettingsModal = true
+                controlsVisible = true
+            }
+        }
+        PlayerControlsAction.PictureInPicture -> {
+            togglePlayerPictureInPicture()
+        }
+        PlayerControlsAction.Minimize -> {
+            args.onMinimize?.invoke()
+        }
+        PlayerControlsAction.Expand -> {
+            args.onExpand?.invoke()
+        }
+        PlayerControlsAction.DoubleTapSeekBack -> {
+            prepareDoubleTapSeekForNativeFallback(PlayerSeekDirection.Backward)
+            return false
+        }
+        PlayerControlsAction.DoubleTapSeekForward -> {
+            prepareDoubleTapSeekForNativeFallback(PlayerSeekDirection.Forward)
+            return false
+        }
+    }
+    return true
+}
+
+internal fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: Double): Boolean {
+    if (type.shouldLogPlayerControlsEvent()) {
+        playerControlsLog.d { "event type=$type value=$value ${playerControlLogContext()}" }
+    }
+    when (type) {
+        "cursorActivity" -> {
+            if (!playerControlsLocked) {
+                controlsVisible = true
+                controlsActivityTick += 1
+            }
+        }
+        "hideChrome" -> {
+            controlsVisible = false
+        }
+        "keepChromeVisible" -> {
+            controlsVisible = true
+            controlsActivityTick += 1
+        }
+        "setPlaybackState",
+        "setPlaybackStateQuiet" -> {
+            applyNativePlaybackState(play = value >= 0.5)
+            if (type == "setPlaybackState") {
+                controlsVisible = true
+            }
+        }
+        "setPlaybackSpeed" -> {
+            if (!isPartySynced) return false
+            selectPlaybackSpeed(value.toFloat())
+        }
+        "setEyeFilterEnabled" -> {
+            PlayerSettingsRepository.setEyeFilterEnabled(value >= 0.5)
+            true
+        }
+        "setEyeFilterOpacity" -> {
+            PlayerSettingsRepository.setEyeFilterOpacity(value.toFloat())
+            true
+        }
+        "setEyeFilterColor" -> {
+            val colorInt = (value.toLong().toInt()) and 0xFFFFFF
+            val hex = "#" + colorInt.toString(16).padStart(6, '0').uppercase()
+            PlayerSettingsRepository.setEyeFilterColor(hex)
+            true
+        }
+        "selectChapter" -> {
+            selectChapter(value.toInt())
+        }
+        "reloadSources" -> {
+            prepareSourcesForPlayerControls(forceRefresh = true)
+        }
+        "selectSource" -> {
+            val streams = sourceStreamsState.groups.flatMap { it.streams }
+            val stream = streams.getOrNull(value.toInt()) ?: return true
+            if (requestP2pConsentForPlayerControls(stream = stream, episode = null)) return true
+            switchToSource(stream)
+            playerControlsCloseModalsToken += 1
+        }
+        "episodes" -> {
+            prepareEpisodesForPlayerControls()
+            episodeStreamsPanelState = EpisodeStreamsPanelState()
+            PlayerStreamsRepository.clearEpisodeStreams()
+        }
+        "selectEpisode" -> {
+            val episode = playerMetaVideos.getOrNull(value.toInt()) ?: return true
+            syncStreamLaunch(episode)
+            if (selectDownloadedEpisodeForPlayback(
+                    parentMetaId = parentMetaId,
+                    episode = episode,
+                    onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
+                )
+            ) {
+                playerControlsCloseModalsToken += 1
+            } else {
+                requestEpisodeStreamsForPlayerControls(episode)
+            }
+        }
+        "selectEpisodeStream" -> {
+            val episode = episodeStreamsPanelState.selectedEpisode ?: return true
+            val stream = episodeStreamsRepoState.groups.flatMap { it.streams }.getOrNull(value.toInt()) ?: return true
+            if (requestP2pConsentForPlayerControls(stream = stream, episode = episode)) return true
+            switchToEpisodeStream(stream, episode)
+            playerControlsCloseModalsToken += 1
+        }
+        "backToEpisodes" -> {
+            episodeStreamsPanelState = EpisodeStreamsPanelState()
+            PlayerStreamsRepository.clearEpisodeStreams()
+        }
+        "reloadEpisodeStreams" -> {
+            episodeStreamsPanelState.selectedEpisode?.let { requestEpisodeStreamsForPlayerControls(it, forceRefresh = true) }
+        }
+        "submitIntroSegment" -> {
+            submitIntroSegmentType = when (value.toInt()) {
+                1 -> "recap"
+                2 -> "outro"
+                else -> "intro"
+            }
+            submitIntroStatusMessage = null
+        }
+        "submitIntroStart" -> {
+            val seconds = value.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+            submitIntroStartTimeSec = seconds
+            submitIntroStartTimeStr = formatPlayerControlsSeconds(seconds)
+            submitIntroStatusMessage = null
+        }
+        "submitIntroEnd" -> {
+            val seconds = value.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+            submitIntroEndTimeSec = seconds
+            submitIntroEndTimeStr = formatPlayerControlsSeconds(seconds)
+            submitIntroStatusMessage = null
+        }
+        "submitIntroCommit" -> submitIntroFromPlayerControls()
+        "setAnimeUpscalerMode" -> {
+            PlayerSettingsRepository.setAnimeUpscalerMode(AnimeUpscalerMode.fromIndex(value.toInt()))
+            true
+        }
+        "setAnimeUpscalerOption" -> {
+            val option = when (value.toInt()) {
+                0 -> AnimeUpscalerOption.OFF
+                1 -> AnimeUpscalerOption.AUTO
+                2 -> AnimeUpscalerOption.ALWAYS_ON
+                else -> AnimeUpscalerOption.OFF
+            }
+            PlayerSettingsRepository.setAnimeUpscalerOption(option)
+            true
+        }
+        "forceAnimeUpscalerOn" -> {
+            PlayerSettingsRepository.setAnimeUpscalerOption(AnimeUpscalerOption.ALWAYS_ON)
+            true
+        }
+        "setSvpMode" -> {
+            val option = when (value.toInt()) {
+                0 -> SvpMotionOption.OFF
+                1 -> SvpMotionOption.AUTO
+                3 -> SvpMotionOption.GLOBAL
+                else -> SvpMotionOption.AUTO
+            }
+            PlayerSettingsRepository.setSvpMotionOption(option)
+            true
+        }
+        "toggleAnimeUpscaler" -> {
+            PlayerSettingsRepository.setAnimeUpscalerEnabled(value >= 0.5)
+            true
+        }
+        "toggleAudioNightMode" -> {
+            PlayerSettingsRepository.setAudioNightModeEnabled(value >= 0.5)
+            true
+        }
+        "skipInterval" -> activeSkipInterval?.let { skipInterval(it) }
+        "playNextEpisode" -> {
+            if (nextEpisodeInfo?.hasAired == true && !nextEpisodeAutoPlaySearching && nextEpisodeAutoPlayCountdown == null) {
+                if (!partyBlocksControl()) {
+                    controlsVisible = true
+                    controlsActivityTick += 1
+                    playNextEpisode()
+                }
+            }
+        }
+        "enableP2pForPlayerControls" -> enableP2pForPlayerControls()
+        "cancelP2pForPlayerControls" -> {
+            playerControlsPendingP2pSwitch = null
+        }
+        "subtitleTab" -> {
+            activeSubtitleTab = when (value.toInt()) {
+                1 -> SubtitleTab.Addons
+                2 -> SubtitleTab.Style
+                else -> SubtitleTab.BuiltIn
+            }
+        }
+        "selectBuiltInSubtitleTrack" -> {
+            val index = value.toInt()
+            val wasCustom = useCustomSubtitles
+            playerControlsLog.d {
+                "selectBuiltInSubtitleTrack index=$index wasCustom=$wasCustom tracks=${subtitleTracks.size} ${playerControlLogContext()}"
+            }
+            isUserExplicitSubtitleSelection = true
+            preferredSubtitleSelectionApplied = true
+            selectedSubtitleIndex = index
+            selectedAddonSubtitleId = null
+            useCustomSubtitles = false
+            persistInternalSubtitlePreference(subtitleTracks.firstOrNull { it.index == index })
+            if (wasCustom) {
+                playerController?.clearExternalSubtitleAndSelect(index)
+            } else {
+                playerController?.selectSubtitleTrack(index)
+            }
+        }
+        "selectAudioTrack" -> {
+            // The controls webview sends the track id (trackIdValue); map it back
+            // to the logical index that selectAudioTrack() expects (falling back to
+            // treating the value as an index if no id matches).
+            val requestedId = value.toInt()
+            val index = audioTracks.firstOrNull { it.id == requestedId.toString() }?.index
+                ?: audioTracks.firstOrNull { it.index == requestedId }?.index
+                ?: requestedId
+            playerControlsLog.d {
+                "selectAudioTrack id=$requestedId index=$index tracks=${audioTracks.size} ${playerControlLogContext()}"
+            }
+            selectedAudioIndex = index
+            persistAudioPreference(audioTracks.firstOrNull { it.index == index })
+            playerController?.selectAudioTrack(index)
+        }
+        "fetchAddonSubtitles" -> fetchAddonSubtitlesForActiveItem()
+        "selectAddonSubtitle" -> {
+            val addon = visibleAddonSubtitles.getOrNull(value.toInt()) ?: return true
+            playerControlsLog.d {
+                "selectAddonSubtitle index=${value.toInt()} addonId=${addon.id} language=${addon.language} ${playerControlLogContext()}"
+            }
+            isUserExplicitSubtitleSelection = true
+            selectedAddonSubtitleId = addon.selectionKey
+            selectedSubtitleIndex = -1
+            useCustomSubtitles = true
+            preferredSubtitleSelectionApplied = true
+            persistAddonSubtitlePreference(addon)
+            attachSelectedAddonSubtitleWithAutoSync(addon.url)
+        }
+        "importSubtitle" -> {
+            val file = SubtitleImportPlatform.pickSubtitleFile()
+            if (file != null) {
+                importExternalSubtitle(file.path, file.name)
+            }
+            true
+        }
+        "subtitleVisibility" -> playerController?.setSubtitleVisible(value != 0.0)
+        "subtitleDelayDelta" -> setSubtitleDelay((subtitleDelayMs + value.toInt()).coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS))
+        "subtitleDelayReset" -> setSubtitleDelay(0)
+        "subtitleAutoSyncCapture" -> captureSubtitleAutoSyncTime()
+        "subtitleAutoSyncReload" -> loadSubtitleAutoSyncCues(force = true)
+        "subtitleAutoSyncCue" -> {
+            val cue = playerControlsNearestSubtitleCues().getOrNull(value.toInt()) ?: return true
+            applySubtitleAutoSyncCue(cue)
+        }
+        "setShowRemainingTime" -> {
+            PlayerSettingsRepository.setShowRemainingTime(value.toInt() == 1)
+        }
+        "subtitleCustomStyleToggle" -> {
+            PlayerSettingsRepository.setUseLibass(!playerSettingsUiState.useLibass)
+        }
+        "subtitleFontSizeDelta" -> {
+            PlayerSettingsRepository.setSubtitleStyle(
+                subtitleStyle.copy(fontSizeSp = (subtitleStyle.fontSizeSp + value.toInt()).coerceIn(subtitleFontSizeRangeSp)),
+            )
+        }
+        "subtitleOutlineToggle" -> {
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(outlineEnabled = !subtitleStyle.outlineEnabled))
+        }
+        "subtitleBoldToggle" -> {
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(bold = !subtitleStyle.bold))
+        }
+        "subtitleBottomOffsetDelta" -> {
+            PlayerSettingsRepository.setSubtitleStyle(
+                subtitleStyle.copy(bottomOffset = (subtitleStyle.bottomOffset + value.toInt()).coerceIn(0, 200)),
+            )
+        }
+        "subtitleTextColor" -> {
+            SubtitleColorSwatches.getOrNull(value.toInt())?.let { color ->
+                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(textColor = color.copy(alpha = subtitleStyle.textColor.alpha)))
+            }
+        }
+        "subtitleTextColorRgb" -> {
+            val rgb = value.toLong().toInt() and 0xFFFFFF
+            val color = Color(0xFF000000.toInt() or rgb).copy(alpha = subtitleStyle.textColor.alpha)
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(textColor = color))
+        }
+        "subtitleOutlineColor" -> {
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.withEffectSwatch(value.toInt()))
+        }
+        "subtitleBackgroundColor" -> {
+            SubtitleColorSwatches.getOrNull(value.toInt())?.let { color ->
+                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(backgroundColor = color.copy(alpha = subtitleStyle.backgroundColor.alpha)))
+            }
+        }
+        "subtitleBackgroundOpacity" -> {
+            if (subtitleStyle.outlineEffect == SubtitleOutlineEffect.BACKGROUND_BOX) {
+                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.withEffectOpacity(value.toInt()))
+            }
+        }
+        "subtitleFont" -> {
+            val fonts = subtitleFontIds()
+            fonts.getOrNull(value.toInt())?.let { PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.selectFont(it)) }
+        }
+        "subtitleFontImport" -> {
+            subtitleFontImportFailed = false
+            subtitleFontImportToken++
+        }
+        "subtitleFontRemove" -> {
+            val fonts = SubtitleFonts.installed()
+            fonts.getOrNull(value.toInt() - SubtitleFontOptions.size)?.let { font ->
+                SubtitleFonts.remove(font.id)
+                subtitleFontsRevision++
+                if (subtitleStyle.importedFontId == font.id) {
+                    PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(importedFontId = null))
+                }
+            }
+        }
+        "subtitleOutlineColorRgb" -> {
+            val rgb = value.toLong().toInt() and 0xFFFFFF
+            val color = Color(0xFF000000.toInt() or rgb)
+            PlayerSettingsRepository.setSubtitleStyle(
+                subtitleStyle.withEffectColor(color),
+            )
+        }
+        "subtitleOutlineOpacity" -> {
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.withEffectOpacity(value.toInt()))
+        }
+        "subtitleTextOpacity" -> {
+            val alpha = (value.toFloat() / 100f).coerceIn(0f, 1f)
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(textColor = subtitleStyle.textColor.copy(alpha = alpha)))
+        }
+        "subtitleFontDelta" -> {
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.cycleFont(value.toInt()))
+        }
+        "subtitleFontIndex" -> {
+            subtitleFontIds().getOrNull(value.toInt())?.let { font ->
+                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.selectFont(font))
+            }
+        }
+        "subtitleOutlineEffectDelta" -> {
+            val effects = SubtitleOutlineEffect.entries
+            val currentIndex = effects.indexOf(subtitleStyle.outlineEffect).coerceAtLeast(0)
+            val delta = value.toInt()
+            val nextIndex = (currentIndex + delta).mod(effects.size)
+            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(outlineEffect = effects[nextIndex]))
+        }
+        "subtitleOutlineEffectIndex" -> {
+            SubtitleOutlineEffect.entries.getOrNull(value.toInt())?.let { effect ->
+                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(outlineEffect = effect))
+            }
+        }
+        "subtitleOutlineThickness" -> {
+            val currentStyle = PlayerSettingsRepository.uiState.value.subtitleStyle
+            val thickness = normalizeSubtitleOutlineWidth(value.toFloat())
+            PlayerSettingsRepository.setSubtitleStyle(currentStyle.copy(outlineWidth = thickness))
+        }
+        "subtitleOutlineThicknessDelta" -> {
+            val currentStyle = PlayerSettingsRepository.uiState.value.subtitleStyle
+            if (currentStyle.outlineEffect.needsOutline) {
+                val thickness = stepSubtitleOutlineWidth(currentStyle.outlineWidth, value.toInt())
+                PlayerSettingsRepository.setSubtitleStyle(currentStyle.copy(outlineWidth = thickness))
+            }
+        }
+        "subtitleStyleReset" -> PlayerSettingsRepository.setSubtitleStyle(SubtitleStyleState.DEFAULT)
+        "showParentalGuide" -> {
+            if (playerSettingsUiState.showParentalGuide && parentalWarnings.isNotEmpty() &&
+                !showParentalGuide && !playerControlsLocked
+            ) {
+                showParentalGuide = true
+            }
+        }
+        "parentalGuideComplete" -> {
+            showParentalGuide = false
+        }
+        else -> return handlePartyControlsEvent(type, value)
+    }
+    return true
+}
+
+private fun PlayerScreenRuntime.requestP2pConsentForPlayerControls(
+    stream: StreamItem,
+    episode: MetaVideo?,
+): Boolean {
+    val shouldRequestConsent = shouldRequestP2pConsentForPlayerControls(
+        isP2pStream = isP2pStream(stream),
+        shouldResolveToPlayableStream = DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream),
+        p2pSettingsVisible = P2pSettingsRepository.isVisible,
+        p2pEnabled = P2pSettingsRepository.uiState.value.p2pEnabled,
+    )
+    if (!shouldRequestConsent) return false
+    playerControlsPendingP2pSwitch = PendingPlayerP2pSwitch(
+        stream = stream,
+        episode = episode,
+        isAutoPlay = false,
+    )
+    return true
+}
+
+internal fun shouldRequestP2pConsentForPlayerControls(
+    isP2pStream: Boolean,
+    shouldResolveToPlayableStream: Boolean,
+    p2pSettingsVisible: Boolean,
+    p2pEnabled: Boolean,
+): Boolean =
+    isP2pStream &&
+        !shouldResolveToPlayableStream &&
+        p2pSettingsVisible &&
+        !p2pEnabled
+
+private fun PlayerScreenRuntime.enableP2pForPlayerControls() {
+    val pending = playerControlsPendingP2pSwitch ?: return
+    playerControlsPendingP2pSwitch = null
+    P2pSettingsRepository.setP2pEnabled(true)
+    val episode = pending.episode
+    if (episode != null) {
+        switchToP2pEpisodeStream(pending.stream, episode, pending.isAutoPlay)
+    } else {
+        switchToP2pSourceStream(pending.stream)
+    }
+    playerControlsCloseModalsToken += 1
+}
+
+private fun PlayerScreenRuntime.prepareSourcesForPlayerControls(forceRefresh: Boolean = false) {
+    val vid = activeVideoId
+    if (vid == null) {
+        return
+    }
+    val requestType = contentType ?: parentMetaType
+    PlayerStreamsRepository.loadSources(
+        type = requestType,
+        videoId = vid,
+        season = activeSeasonNumber,
+        episode = activeEpisodeNumber,
+        forceRefresh = forceRefresh,
+    )
+}
+
+internal fun Color.toCssColorString(): String {
+    val redInt = (red * 255f).roundToInt().coerceIn(0, 255)
+    val greenInt = (green * 255f).roundToInt().coerceIn(0, 255)
+    val blueInt = (blue * 255f).roundToInt().coerceIn(0, 255)
+    val alphaValue = alpha.coerceIn(0f, 1f)
+    return "rgba($redInt, $greenInt, $blueInt, ${alphaValue.toCssAlphaString()})"
+}
+
+private fun Float.toCssAlphaString(): String {
+    val rounded = (this * 1000f).roundToInt() / 1000f
+    return rounded.toString().trimEnd('0').trimEnd('.').ifEmpty { "0" }
+}
+
+private fun PlayerScreenRuntime.prepareEpisodesForPlayerControls() {
+    if (!isSeries) return
+    if (playerMetaVideos.isEmpty()) {
+        scope.launch {
+            playerMetaVideos = MetaDetailsRepository.fetch(parentMetaType, parentMetaId)?.videos ?: emptyList()
+        }
+    }
+}
+
+private fun PlayerScreenRuntime.requestEpisodeStreamsForPlayerControls(
+    episode: MetaVideo,
+    forceRefresh: Boolean = false,
+) {
+    syncStreamLaunch(episode)
+    PlayerStreamsRepository.loadEpisodeStreams(
+        type = contentType ?: parentMetaType,
+        videoId = episode.id,
+        season = episode.season,
+        episode = episode.episode,
+        forceRefresh = forceRefresh,
+    )
+    episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
+}
+
+private fun PlayerScreenRuntime.submitIntroFromPlayerControls() {
+    if (isSubmitIntroSubmitting) return
+    val imdbId = activeSubmitIntroImdbId()
+    val season = activeSeasonNumber
+    val episode = activeEpisodeNumber
+    val start = submitIntroStartTimeSec
+    val end = submitIntroEndTimeSec
+    if (imdbId.isNullOrBlank() || season == null || episode == null || start == null || end == null || end <= start) {
+        submitIntroStatusMessage = "Check the start and end times."
+        return
+    }
+    isSubmitIntroSubmitting = true
+    submitIntroStatusMessage = null
+    scope.launch {
+        val result = SkipIntroRepository.submitIntro(
+            imdbId = imdbId,
+            season = season,
+            episode = episode,
+            startSec = start,
+            endSec = end,
+            segmentType = submitIntroSegmentType,
+        )
+        isSubmitIntroSubmitting = false
+        if (result) {
+            submitIntroStartTimeSec = 0.0
+            submitIntroEndTimeSec = 0.0
+            submitIntroStartTimeStr = "00:00"
+            submitIntroEndTimeStr = "00:00"
+            submitIntroSegmentType = "intro"
+            submitIntroStatusMessage = null
+            playerControlsCloseModalsToken += 1
+            playerControlsSubmitIntroSuccessToken += 1
+        } else {
+            submitIntroStatusMessage = "Unable to submit timestamps."
+        }
+    }
+}
+
+private fun PlayerScreenRuntime.activeSubmitIntroContentKey(): String {
+    val imdbId = activeSubmitIntroImdbId()?.takeIf { it.isNotBlank() } ?: return ""
+    return "$imdbId:$activeSeasonNumber:$activeEpisodeNumber"
+}
+
+private fun PlayerScreenRuntime.activeSubmitIntroImdbId(): String? =
+    activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
+        ?: parentMetaId.takeIf { it.startsWith("tt") }
+        ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
+
+@Composable
+private fun skipPromptLabel(type: String?): String =
+    when (type?.lowercase()) {
+        "intro", "op", "mixed-op" -> stringResource(Res.string.player_skip_intro)
+        "movie-credits" -> stringResource(Res.string.player_skip_movie_credits)
+        "outro", "ed", "mixed-ed", "credits" -> stringResource(Res.string.player_skip_outro)
+        "recap" -> stringResource(Res.string.player_skip_recap)
+        else -> stringResource(Res.string.player_skip)
+    }
+
+private fun formatPlayerControlsSeconds(seconds: Double): String {
+    val totalSeconds = seconds
+        .takeIf { it.isFinite() && it >= 0.0 }
+        ?.toLong()
+        ?: 0L
+    val minutes = totalSeconds / 60L
+    val remainder = totalSeconds % 60L
+    return "${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}"
+}
+
+private fun PlayerScreenRuntime.handlePlayerControlsScrubChange(positionMs: Long) {
+    if (!isScrubbingTimeline) {
+        playerControlsLog.d { "scrubStarted positionMs=$positionMs ${playerControlLogContext()}" }
+    }
+    if (!isScrubbingTimeline && playbackSnapshot.isPlaying) {
+        pausedForTimelineScrub = true
+        playerController?.pause()
+    }
+    isScrubbingTimeline = true
+    scrubbingPositionMs = positionMs
+}
+
+private fun PlayerScreenRuntime.handlePlayerControlsScrubFinished(positionMs: Long) {
+    playerControlsLog.d { "scrubFinished positionMs=$positionMs controller=${playerController != null} ${playerControlLogContext()}" }
+    finishTimelineSeek(positionMs)
+}
+
+private fun PlayerScreenRuntime.playerControlLogContext(): String =
+    "video=${activeVideoId ?: "none"} s=${activeSeasonNumber ?: "-"} e=${activeEpisodeNumber ?: "-"} " +
+        "pos=${playbackSnapshot.positionMs} duration=${playbackSnapshot.durationMs} " +
+        "speed=${playbackSnapshot.playbackSpeed} controller=${playerController != null}"
+
+private fun String.shouldLogPlayerControlsEvent(): Boolean {
+    val normalized = lowercase()
+    return normalized.contains("audio") ||
+        normalized.contains("subtitle") ||
+        normalized.contains("speed") ||
+        normalized.contains("scrub") ||
+        normalized.contains("seek") ||
+        normalized.contains("episode") ||
+        normalized == "resize" ||
+        normalized == "toggle"
+}
+
+private fun PlayerScreenRuntime.openInExternalPlayer() {
+    val openExternal = args.onOpenInExternalPlayer ?: return
+    val loadedSubtitles = addonSubtitles
+        .takeIf { it.isNotEmpty() }
+        ?.map { sub ->
+            SubtitleInput(
+                url = sub.url,
+                name = buildString {
+                    if (!sub.addonName.isNullOrBlank()) append("[${sub.addonName}] ")
+                    append(sub.display)
+                },
+                lang = sub.language,
+            )
+        }
+    openExternal(
+        ExternalPlayerPlaybackRequest(
+            sourceUrl = activeSourceUrl,
+            title = title,
+            streamTitle = activeStreamTitle,
+            sourceHeaders = activeSourceHeaders,
+            resumePositionMs = playbackSnapshot.positionMs,
+            subtitles = loadedSubtitles,
+        ),
+    )
+}
+
+private fun PlayerScreenRuntime.buildPlayerControlFilters(
+    groups: List<AddonStreamGroup> = sourceStreamsState.groups,
+    allLabel: String,
+    selectedFilter: String?,
+): List<PlayerControlFilterItem> {
+    if (groups.size <= 1) return emptyList()
+    return buildList {
+        add(PlayerControlFilterItem(id = "", label = allLabel, isSelected = selectedFilter == null))
+        groups.distinctBy { it.addonId }.forEach { group ->
+            add(
+                PlayerControlFilterItem(
+                    id = group.addonId,
+                    label = group.addonName,
+                    isSelected = selectedFilter == group.addonId,
+                    isLoading = group.isLoading,
+                    hasError = group.error != null,
+                ),
+            )
+        }
+    }
+}
+
+private fun PlayerScreenRuntime.buildPlayerControlEpisodeStreamFilters(
+    allLabel: String,
+    selectedFilter: String?,
+): List<PlayerControlFilterItem> =
+    buildPlayerControlFilters(
+        groups = episodeStreamsRepoState.groups,
+        allLabel = allLabel,
+        selectedFilter = selectedFilter,
+    )
+
+@Composable
+private fun PlayerScreenRuntime.buildPlayerControlSourceItems(): List<PlayerControlSourceItem> {
+    val canResolveDebrid = DebridSettingsRepository.uiState.value.canResolvePlayableLinks
+    val streamBadgeState = StreamBadgeSettingsRepository.uiState.value
+    val showFileSizeBadges = streamBadgeState.showFileSizeBadges
+    val showAddonLogo = streamBadgeState.showAddonLogo
+    val badgePlacement = streamBadgeState.badgePlacement.name
+    return sourceStreamsState.groups.flatMap { group ->
+        group.streams.map { stream -> group.addonId to stream }
+    }.mapIndexed { index, (filterId, stream) ->
+        PlayerControlSourceItem(
+            index = index,
+            filterId = filterId,
+            label = stream.streamLabel,
+            subtitle = stream.streamSubtitle.orEmpty(),
+            addonName = stream.addonName,
+            addonLogo = stream.addonLogo.orEmpty(),
+            showAddonLogo = showAddonLogo,
+            isCurrent = isCurrentPlayerControlStream(stream),
+            isEnabled = stream.isSelectableForPlayback(canResolveDebrid),
+            badges = stream.badges.map {
+                PlayerControlSourceBadgeItem(
+                    name = it.name,
+                    imageURL = it.imageURL,
+                    tagColor = it.tagColor,
+                    tagStyle = it.tagStyle,
+                    borderColor = it.borderColor,
+                )
+            },
+            formattedSize = if (showFileSizeBadges) formatStreamVideoSize(stream.resolvedVideoSize) else "",
+            badgePlacement = badgePlacement,
+        )
+    }
+}
+
+@Composable
+private fun PlayerScreenRuntime.buildPlayerControlEpisodeStreamItems(): List<PlayerControlSourceItem> {
+    val canResolveDebrid = DebridSettingsRepository.uiState.value.canResolvePlayableLinks
+    val streamBadgeState = StreamBadgeSettingsRepository.uiState.value
+    val showFileSizeBadges = streamBadgeState.showFileSizeBadges
+    val showAddonLogo = streamBadgeState.showAddonLogo
+    val badgePlacement = streamBadgeState.badgePlacement.name
+    return episodeStreamsRepoState.groups.flatMap { group ->
+        group.streams.map { stream -> group.addonId to stream }
+    }.mapIndexed { index, (filterId, stream) ->
+        PlayerControlSourceItem(
+            index = index,
+            filterId = filterId,
+            label = stream.streamLabel,
+            subtitle = stream.streamSubtitle.orEmpty(),
+            addonName = stream.addonName,
+            addonLogo = stream.addonLogo.orEmpty(),
+            showAddonLogo = showAddonLogo,
+            isCurrent = false,
+            isEnabled = stream.isSelectableForPlayback(canResolveDebrid),
+            badges = stream.badges.map {
+                PlayerControlSourceBadgeItem(
+                    name = it.name,
+                    imageURL = it.imageURL,
+                    tagColor = it.tagColor,
+                    tagStyle = it.tagStyle,
+                    borderColor = it.borderColor,
+                )
+            },
+            formattedSize = if (showFileSizeBadges) formatStreamVideoSize(stream.resolvedVideoSize) else "",
+            badgePlacement = badgePlacement,
+        )
+    }
+}
+
+@Composable
+private fun formatStreamVideoSize(bytes: Long?): String {
+    if (bytes == null || bytes <= 0L) return ""
+    val gib = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+    val sizeLabel = if (gib >= 1.0) {
+        val roundedGiB = kotlin.math.round(gib * 10.0) / 10.0
+        "$roundedGiB ${localizedByteUnit("GB")}"
+    } else {
+        val mib = bytes.toDouble() / (1024.0 * 1024.0)
+        "${kotlin.math.round(mib).toInt()} ${localizedByteUnit("MB")}"
+    }
+    return stringResource(Res.string.streams_size, sizeLabel)
+}
+
+private fun PlayerScreenRuntime.isCurrentPlayerControlStream(stream: StreamItem): Boolean {
+    val activeKey = activeSourceIdentityKey
+    val streamKey = stream.playerSourceIdentityKey()
+    if (activeKey != null && streamKey != null && streamKey == activeKey) {
+        return true
+    }
+    activeStream?.let { active ->
+        if (stream == active) return true
+        val activeKeyFromStream = active.playerSourceIdentityKey()
+        if (streamKey != null && activeKeyFromStream != null && streamKey == activeKeyFromStream) return true
+    }
+    val directUrl = stream.playableDirectUrl
+    if (directUrl != null && (directUrl == activeSourceUrl || directUrl == activeStream?.playableDirectUrl)) return true
+
+    val infoHash = stream.p2pInfoHash ?: stream.infoHash
+    val targetHash = activeStream?.p2pInfoHash ?: activeStream?.infoHash ?: activeTorrentInfoHash
+    if (infoHash != null && targetHash != null && infoHash.equals(targetHash, ignoreCase = true)) {
+        val streamIdx = stream.p2pFileIdx ?: stream.fileIdx
+        val targetIdx = activeStream?.p2pFileIdx ?: activeStream?.fileIdx ?: activeTorrentFileIdx
+        if (targetIdx == null || streamIdx == null || streamIdx == targetIdx) {
+            if (activeProviderAddonId.isNullOrBlank() || stream.addonId == activeProviderAddonId) {
+                return true
+            }
+        }
+    }
+
+    val activeFilename = activeSourceFilename ?: activeStreamFilename ?: activeStream?.classificationFilename
+    if (!activeFilename.isNullOrBlank()) {
+        val streamFilename = stream.classificationFilename ?: stream.behaviorHints.filename ?: stream.clientResolve?.filename
+        if (streamFilename == activeFilename && (activeProviderAddonId.isNullOrBlank() || stream.addonId == activeProviderAddonId)) {
+            return true
+        }
+    }
+
+    if (!activeStreamTitle.isNullOrBlank()) {
+        if (stream.streamLabel.equals(activeStreamTitle, ignoreCase = true) &&
+            (activeProviderAddonId.isNullOrBlank() || stream.addonId == activeProviderAddonId) &&
+            (activeStreamSubtitle.isNullOrBlank() || stream.streamSubtitle == activeStreamSubtitle)) {
+            return true
+        }
+    }
+    return false
+}
+
+@Composable
+private fun PlayerScreenRuntime.buildPlayerControlAddonSubtitleItems(): List<PlayerControlAddonSubtitleItem> =
+    visibleAddonSubtitles.mapIndexed { index, subtitle ->
+        PlayerControlAddonSubtitleItem(
+            index = index,
+            id = subtitle.id,
+            display = subtitle.display,
+            language = subtitle.language,
+            languageLabel = languageLabelForCode(subtitle.language),
+            addonName = subtitle.addonName.orEmpty(),
+            isSelected = subtitle.id == selectedAddonSubtitleId || subtitle.url == selectedAddonSubtitleId,
+        )
+    }
+
+private data class PlayerControlSubtitleSelection(
+    val languages: List<PlayerControlSubtitleLanguageItem>,
+    val options: List<PlayerControlSubtitleOptionItem>,
+    val selectedLanguageKey: String,
+    val selectedOptionId: String,
+)
+
+@Composable
+private fun PlayerScreenRuntime.buildPlayerControlSubtitleSelection(): PlayerControlSubtitleSelection {
+    val autoSyncedUrl by AutoSyncSyncedSubtitle.url.collectAsState()
+    val selectedAddon = selectedAddonSubtitle
+    var selectedLanguageKey = "__off__"
+    var selectedOptionId = ""
+    if (selectedAddon != null || selectedSubtitleIndex != -1) {
+        selectedLanguageKey = selectedSubtitleLanguageKey(
+            subtitleTracks = subtitleTracks,
+            selectedSubtitleIndex = selectedSubtitleIndex,
+            selectedAddonSubtitle = selectedAddon,
+        )
+        selectedOptionId = selectedSubtitleOptionId(
+            subtitleTracks = subtitleTracks,
+            selectedSubtitleIndex = selectedSubtitleIndex,
+            selectedAddonSubtitle = selectedAddon,
+        ).orEmpty()
+    }
+    val languageItems = buildSubtitleLanguageItems(
+        subtitleTracks = subtitleTracks,
+        addonSubtitles = visibleAddonSubtitles,
+        preferredLanguage = playerSettingsUiState.preferredSubtitleLanguage,
+        secondaryPreferredLanguage = playerSettingsUiState.secondaryPreferredSubtitleLanguage,
+        showOnlyPreferredLanguages = subtitleStyle.showOnlyPreferredLanguages,
+        selectedLanguageKey = selectedLanguageKey,
+    )
+    val noneLabel = stringResource(Res.string.compose_player_none)
+    val unknownLabel = stringResource(Res.string.subtitle_language_unknown)
+    val importedLabel = stringResource(Res.string.compose_player_imported)
+    val builtInLabel = stringResource(Res.string.compose_player_built_in)
+    val addonLabel = stringResource(Res.string.addon_title)
+    val forcedLabel = stringResource(Res.string.settings_playback_option_forced)
+    val languages = languageItems.map { item ->
+        PlayerControlSubtitleLanguageItem(
+            key = item.key,
+            label = when (item.key) {
+                SubtitleOffLanguageKey -> noneLabel
+                SubtitleUnknownLanguageKey -> unknownLabel
+                SubtitleImportedLanguageKey -> importedLabel
+                else -> languageLabelForCode(item.key)
+            },
+            count = item.count,
+            isSelected = item.key == selectedLanguageKey,
+        )
+    }
+    val options = languageItems.flatMap { language ->
+        buildSubtitleSelectionOptions(
+            languageKey = language.key,
+            subtitleTracks = subtitleTracks,
+            addonSubtitles = visibleAddonSubtitles,
+        ).map { option ->
+            when (option) {
+                is SubtitleSelectionOption.BuiltIn -> PlayerControlSubtitleOptionItem(
+                    id = option.id,
+                    languageKey = language.key,
+                    kind = "builtIn",
+                    index = option.track.index,
+                    sourceLabel = builtInLabel,
+                    title = localizedTrackDisplayName(
+                        option.track.label,
+                        option.track.language,
+                        option.track.index,
+                    ),
+                    metadata = forcedLabel.takeIf { option.track.isForced }.orEmpty(),
+                    isSelected = option.id == selectedOptionId,
+                )
+
+                is SubtitleSelectionOption.Addon -> {
+                    val isImported = option.subtitle.language == SubtitleImportedLanguageKey
+                    val title = if (isImported) option.subtitle.display else languageLabelForCode(option.subtitle.language)
+                    PlayerControlSubtitleOptionItem(
+                        id = option.id,
+                        languageKey = language.key,
+                        kind = "addon",
+                        index = visibleAddonSubtitles.indexOf(option.subtitle).coerceAtLeast(0),
+                        sourceLabel = if (isImported) importedLabel else (option.subtitle.addonName ?: addonLabel),
+                        title = title,
+                        metadata = if (isImported) "" else option.subtitle.display.takeIf {
+                            it.isNotBlank() && it != title
+                        }.orEmpty(),
+                        isSelected = option.id == selectedOptionId,
+                        isAutoSynced = option.id == selectedOptionId && option.subtitle.url == autoSyncedUrl,
+                    )
+                }
+            }
+        }
+    }
+    return PlayerControlSubtitleSelection(
+        languages = languages,
+        options = options,
+        selectedLanguageKey = selectedLanguageKey,
+        selectedOptionId = selectedOptionId,
+    )
+}
+
+private fun PlayerScreenRuntime.buildPlayerControlSubtitleCueItems(): List<PlayerControlSubtitleCueItem> =
+    playerControlsNearestSubtitleCues().mapIndexed { index, cue ->
+        PlayerControlSubtitleCueItem(
+            index = index,
+            timeMs = cue.startTimeMs,
+            timeLabel = formatPlayerControlsCueTimestamp(cue.startTimeMs),
+            text = cue.text,
+        )
+    }
+
+private fun PlayerScreenRuntime.playerControlsNearestSubtitleCues(): List<SubtitleSyncCue> {
+    val capturedPositionMs = subtitleAutoSyncState.capturedPositionMs ?: return emptyList()
+    return subtitleAutoSyncState.cues
+        .sortedBy { abs(it.startTimeMs - capturedPositionMs) }
+        .take(5)
+}
+
+private fun formatPlayerControlsCueTimestamp(timeMs: Long): String {
+    val totalSeconds = (timeMs / 1000L).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "${minutes}:${seconds.toString().padStart(2, '0')}"
+}
+
+@Composable
+private fun PlayerScreenRuntime.buildPlayerControlEpisodeItems(): List<PlayerControlEpisodeItem> {
+    val isFillerEnabled by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.enabled
+    }.collectAsStateWithLifecycle()
+    val hideFillerEpisodes by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.hideFillers
+    }.collectAsStateWithLifecycle()
+    val shouldHideFillers = isFillerEnabled && hideFillerEpisodes
+    val items = mutableListOf<PlayerControlEpisodeItem>()
+    for ((index, video) in playerMetaVideos.withIndex()) {
+        if (video.season == null && video.episode == null) continue
+        if (shouldHideFillers && video.isFiller && !video.isMixed) continue
+        val episodeVideoId = buildPlaybackVideoId(
+            parentMetaId = parentMetaId,
+            seasonNumber = video.season,
+            episodeNumber = video.episode,
+            fallbackVideoId = video.id,
+        )
+        val isWatched = watchProgressUiState.byVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+            WatchingState.isEpisodeWatched(
+                watchedKeys = watchedUiState.watchedKeys,
+                metaType = parentMetaType,
+                metaId = parentMetaId,
+                episode = video,
+            )
+        val rawRating = video.seasonEpisodeKey()?.let { episodeImdbRatings[it] } ?: video.rating
+        val ratingLabel = rawRating
+            ?.takeIf { it > 0.0 && metaScreenSettingsUiState.episodeRatingsVisibility.showRating(isWatched) }
+            ?.let(::formatEpisodeRating)
+            .orEmpty()
+        items.add(
+            PlayerControlEpisodeItem(
+                index = index,
+                id = video.id,
+                title = video.title,
+                code = video.playerControlsEpisodeCode(),
+                overview = video.overview.orEmpty(),
+                thumbnail = video.thumbnail.orEmpty(),
+                released = video.released
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::formatReleaseDateForDisplay)
+                    .orEmpty(),
+                rating = ratingLabel,
+                season = video.season?.coerceAtLeast(0) ?: 0,
+                episode = video.episode ?: 0,
+                isCurrent = video.season == activeSeasonNumber && video.episode == activeEpisodeNumber,
+                isWatched = isWatched,
+                isFiller = video.isFiller && isFillerEnabled,
+                isMixed = video.isMixed && isFillerEnabled,
+            ),
+        )
+    }
+    return items
+}
+
+@Composable
+private fun PlayerScreenRuntime.buildPlayerControlSeasonItems(
+    episodes: List<PlayerControlEpisodeItem>,
+): List<PlayerControlSeasonItem> {
+    val availableSeasons = episodes
+        .map { it.season }
+        .distinct()
+        .let { seasons ->
+            seasons.filter { it > 0 }.sorted() + seasons.filter { it == 0 }
+        }
+    val items = mutableListOf<PlayerControlSeasonItem>()
+    for (season in availableSeasons) {
+        val label = if (season == 0) {
+            stringResource(Res.string.episodes_specials)
+        } else {
+            stringResource(Res.string.episodes_season, season)
+        }
+        items.add(
+            PlayerControlSeasonItem(
+                season = season,
+                label = label,
+                isSelected = activeSeasonNumber == season,
+            ),
+        )
+    }
+    return items
+}
+
+@Composable
+private fun MetaVideo.playerControlsEpisodeCode(): String =
+    when {
+        season != null && episode != null -> stringResource(Res.string.compose_player_episode_code_full, season, episode)
+        episode != null -> stringResource(Res.string.compose_player_episode_code_episode_only, episode)
+        else -> ""
+    }
+
+@Composable
+private fun BoxScope.RenderPlaybackOverlays(
+    runtime: PlayerScreenRuntime,
+    displayedPositionMs: Long,
+    currentGestureFeedback: GestureFeedbackState?,
+    initialLoadingMessage: String?,
+    initialLoadingProgress: Float?,
+    showP2pRebufferStats: Boolean,
+    p2pRebufferMessage: String?,
+    p2pRebufferProgress: Float?,
+    suppressOpeningOverlay: Boolean,
+    folded: Boolean,
+) {
+    runtime.run {
+        PlayerPlaybackOverlays(
+            playerControlsLocked = playerControlsLocked,
+            useLegacyLayout = isDesktop || playerSettingsUiState.useLegacyPlayerLayout,
+            lockedOverlayVisible = lockedOverlayVisible && !folded,
+            showRemainingTime = playerSettingsUiState.showRemainingTime,
+            playbackSnapshot = playbackSnapshot,
+            displayedPositionMs = displayedPositionMs,
+            metrics = metrics,
+            horizontalSafePadding = horizontalSafePadding,
+            onUnlock = { unlockPlayerControls() },
+            showOpeningOverlay = playerSettingsUiState.showLoadingOverlay &&
+                !initialLoadCompleted &&
+                errorMessage == null &&
+                !suppressOpeningOverlay,
+            backdropArtwork = background ?: poster,
+            logo = logo,
+            title = title,
+            onBackWithProgress = { requestBack() },
+            openingLoadingMessage = if (playerSettingsUiState.showPlayerLoadingStatus) {
+                initialLoadingMessage ?: playerLoadingStatusMessage(
+                    showStatus = true,
+                    controllerReady = playerController != null,
+                    buffering = playbackSnapshot.isLoading,
+                )
+            } else null,
+            initialLoadingProgress = initialLoadingProgress,
+            showP2pRebufferStats = showP2pRebufferStats,
+            p2pRebufferMessage = p2pRebufferMessage,
+            p2pRebufferProgress = p2pRebufferProgress,
+            currentGestureFeedback = currentGestureFeedback,
+            renderedGestureFeedback = renderedGestureFeedback,
+            initialLoadCompleted = initialLoadCompleted,
+            pausedOverlayVisible = pausedOverlayVisible,
+            activeSkipInterval = activeSkipInterval.takeUnless { isDesktop },
+            skipsToPostCredits = activeSkipInterval?.internalSkipAction(skipIntervals, playbackSnapshot.durationMs)?.skipsToPostCredits == true,
+            skipIntervalDismissed = skipIntervalDismissed,
+            controlsVisible = controlsVisible,
+            onSkipInterval = { interval -> skipInterval(interval) },
+            onDismissSkipInterval = { skipIntervalDismissed = true },
+            sliderEdgePadding = sliderEdgePadding,
+            overlayBottomPadding = overlayBottomPadding,
+            isSeries = isSeries && !isDesktop,
+            nextEpisodeInfo = nextEpisodeInfo,
+            showNextEpisodeCard = showNextEpisodeCard && !isDesktop,
+            nextEpisodeAutoPlaySearching = nextEpisodeAutoPlaySearching,
+            nextEpisodeAutoPlaySourceName = nextEpisodeAutoPlaySourceName,
+            nextEpisodeAutoPlayCountdown = nextEpisodeAutoPlayCountdown,
+            blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
+            onPlayNextEpisode = {
+                if (!partyBlocksControl()) playNextEpisode()
+            },
+            onDismissNextEpisode = {
+                cancelNextEpisodeAutoPlay()
+                nextEpisodeCardDismissed = true
+                showNextEpisodeCard = false
+            },
+            errorMessage = errorMessage,
+            onDismissError = { requestBack() },
+        )
+    }
+}
+
+@Composable
+private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
+    PlayerChaptersPanel(
+        visible = showChaptersPanel && chapters.isNotEmpty(),
+        chapters = chapters,
+        positionMs = displayedPositionMs,
+        durationMs = playbackSnapshot.durationMs,
+        onChapterSelected = { selectChapter(it) },
+        onDismiss = {
+            showChaptersPanel = false
+            controlsVisible = true
+        },
+    )
+    PlayerScreenModalHosts(
+        pendingP2pSwitch = pendingP2pSwitch,
+        onPendingP2pSwitchChanged = { pendingP2pSwitch = it },
+        onP2pEpisodeStreamSelected = { stream, episode, isAutoPlay ->
+            switchToP2pEpisodeStream(stream, episode, isAutoPlay)
+        },
+        onP2pSourceStreamSelected = { stream -> switchToP2pSourceStream(stream) },
+        onNextEpisodeAutoPlaySearchingChanged = { nextEpisodeAutoPlaySearching = it },
+        onNextEpisodeAutoPlayCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
+        onNextEpisodeAutoPlaySourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
+        showAudioModal = showAudioModal,
+        audioTracks = serverAudioTracks.ifEmpty { audioTracks },
+        selectedAudioIndex = serverAudioTracks.firstOrNull { it.isSelected }?.index ?: selectedAudioIndex,
+        onAudioTrackSelected = { index ->
+            if (serverAudioTracks.isNotEmpty()) {
+                selectServerAudioTrack(index)
+            } else {
+                selectedAudioIndex = index
+                persistAudioPreference(audioTracks.firstOrNull { it.index == index })
+                playerController?.selectAudioTrack(index)
+            }
+            scope.launch {
+                kotlinx.coroutines.delay(200)
+                showAudioModal = false
+            }
+        },
+        onAudioModalDismissed = { showAudioModal = false },
+        showAudioDelay = playerController?.supportsAudioDelay == true,
+        audioDelayMs = audioDelayMs,
+        onAudioDelayChanged = { delayMs -> setAudioDelay(delayMs) },
+        showAudioAmplification = playerController?.supportsAudioAmplification == true,
+        audioAmplificationDb = audioAmplificationDb,
+        keepAudioAmplification = playerSettingsUiState.persistAudioAmplification,
+        onAudioAmplificationChanged = { db -> setAudioAmplification(db) },
+        onKeepAudioAmplificationChanged = { keep -> setKeepAudioAmplification(keep) },
+        showCenterMix = centerMixAvailable,
+        centerMixLevelDb = centerMixLevelDb,
+        onCenterMixLevelChanged = { db -> setCenterMixLevel(db) },
+        showSubtitleModal = showSubtitleModal,
+        subtitleTracks = serverSubtitleTracks.ifEmpty { subtitleTracks },
+        selectedSubtitleIndex = if (serverSubtitleTracks.isEmpty()) {
+            selectedSubtitleIndex
+        } else {
+            serverSubtitleTracks.firstOrNull { it.isSelected }?.index ?: -1
+        },
+        addonSubtitles = visibleAddonSubtitles,
+        selectedAddonSubtitleId = selectedAddonSubtitleId,
+        isLoadingAddonSubtitles = isLoadingAddonSubtitles,
+        subtitleStyle = subtitleStyle,
+        subtitleDelayMs = subtitleDelayMs,
+        selectedAddonSubtitle = selectedAddonSubtitle,
+        subtitleAutoSyncState = subtitleAutoSyncState,
+        onBuiltInSubtitleTrackSelected = { index ->
+            if (serverSubtitleTracks.isNotEmpty() && index >= 0) {
+                selectServerSubtitleTrack(index)
+            } else {
+                val wasCustom = useCustomSubtitles
+                isUserExplicitSubtitleSelection = true
+                preferredSubtitleSelectionApplied = true
+                selectedSubtitleIndex = index
+                selectedAddonSubtitleId = null
+                useCustomSubtitles = false
+                persistInternalSubtitlePreference(subtitleTracks.firstOrNull { it.index == index })
+                if (wasCustom) {
+                    playerController?.clearExternalSubtitleAndSelect(index)
+                } else {
+                    playerController?.selectSubtitleTrack(index)
+                }
+                if (hasBurnedInServerSubtitle) clearServerSubtitleTrack()
+            }
+        },
+        onAddonSubtitleSelected = { addon ->
+            isUserExplicitSubtitleSelection = true
+            selectedAddonSubtitleId = addon.selectionKey
+            selectedSubtitleIndex = -1
+            useCustomSubtitles = true
+            preferredSubtitleSelectionApplied = true
+            persistAddonSubtitlePreference(addon)
+            attachSelectedAddonSubtitleWithAutoSync(addon.url) // AutoSync hook
+            if (hasBurnedInServerSubtitle) clearServerSubtitleTrack()
+        },
+        onFetchAddonSubtitles = { fetchAddonSubtitlesForActiveItem() },
+        onSubtitleStyleChanged = PlayerSettingsRepository::setSubtitleStyle,
+        onSubtitleDelayChanged = { delayMs -> setSubtitleDelay(delayMs) },
+        onSubtitleDelayReset = { setSubtitleDelay(0) },
+        onAutoSyncCapture = { captureSubtitleAutoSyncTime() },
+        onAutoSyncCueSelected = { cue -> applySubtitleAutoSyncCue(cue) },
+        onAutoSyncReload = { loadSubtitleAutoSyncCues(force = true) },
+        onSubtitleModalDismissed = { showSubtitleModal = false },
+        onImportSubtitle = {
+            val file = SubtitleImportPlatform.pickSubtitleFile()
+            if (file != null) {
+                importExternalSubtitle(file.path, file.name)
+            }
+        },
+        showVideoSettingsModal = showVideoSettingsModal,
+        playerSettings = playerSettingsUiState,
+        onVideoSettingsChanged = {
+            playerController?.configureIosVideoOutput(PlayerSettingsRepository.uiState.value)
+        },
+        onVideoSettingsModalDismissed = { showVideoSettingsModal = false },
+        showSourcesPanel = showSourcesPanel,
+        sourceStreamsState = sourceStreamsState,
+        contentTitle = title,
+        activeEpisodeTitle = activeEpisodeTitle,
+        currentStream = PlayerCurrentStream(
+            url = activeSourceUrl,
+            name = activeStreamTitle,
+            description = activeStreamSubtitle,
+            addonId = activeProviderAddonId,
+            infoHash = activeStream?.p2pInfoHash ?: activeStream?.infoHash ?: activeTorrentInfoHash,
+            fileIdx = activeStream?.p2pFileIdx ?: activeStream?.fileIdx ?: activeTorrentFileIdx,
+            filename = activeSourceFilename ?: activeStream?.classificationFilename ?: activeStreamFilename,
+        ),
+        onSourceFilterSelected = PlayerStreamsRepository::selectSourceFilter,
+        onSourceStreamSelected = { stream -> switchToSource(stream) },
+        onReloadSources = {
+            val vid = activeVideoId
+            if (vid != null) {
+                PlayerStreamsRepository.loadSources(
+                    type = contentType ?: parentMetaType,
+                    videoId = vid,
+                    season = activeSeasonNumber,
+                    episode = activeEpisodeNumber,
+                    forceRefresh = true,
+                )
+            }
+        },
+        onSourcesPanelDismissed = {
+            showSourcesPanel = false
+            PlayerStreamsRepository.stopSourcesLoading()
+            controlsVisible = true
+        },
+        isSeries = isSeries,
+        showEpisodesPanel = showEpisodesPanel,
+        allEpisodes = playerMetaVideos,
+        parentMetaType = parentMetaType,
+        parentMetaId = parentMetaId,
+        activeSeasonNumber = activeSeasonNumber,
+        activeEpisodeNumber = activeEpisodeNumber,
+        watchProgressByVideoId = watchProgressUiState.byVideoIdForContent(parentMetaId),
+        watchedKeys = watchedUiState.watchedKeys,
+        blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
+        episodeStreamsPanelState = episodeStreamsPanelState,
+        episodeStreamsRepoState = episodeStreamsRepoState,
+        episodeImdbRatings = episodeImdbRatings,
+        onEpisodeSelectedForDownload = { episode ->
+            selectDownloadedEpisodeForPlayback(
+                parentMetaId = parentMetaId,
+                episode = episode,
+                onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
+            )
+        },
+        onEpisodeStreamsRequested = { episode ->
+            syncStreamLaunch(episode)
+            PlayerStreamsRepository.loadEpisodeStreams(
+                type = contentType ?: parentMetaType,
+                videoId = episode.id,
+                season = episode.season,
+                episode = episode.episode,
+            )
+            episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
+        },
+        onEpisodeStreamFilterSelected = PlayerStreamsRepository::selectEpisodeStreamsFilter,
+        onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
+        onBackToEpisodes = {
+            episodeStreamsPanelState = EpisodeStreamsPanelState()
+            PlayerStreamsRepository.clearEpisodeStreams()
+        },
+        onReloadEpisodeStreams = {
+            val episode = episodeStreamsPanelState.selectedEpisode
+            if (episode != null) {
+                PlayerStreamsRepository.loadEpisodeStreams(
+                    type = contentType ?: parentMetaType,
+                    videoId = episode.id,
+                    season = episode.season,
+                    episode = episode.episode,
+                    forceRefresh = true,
+                )
+            }
+        },
+        onEpisodesPanelDismissed = {
+            showEpisodesPanel = false
+            episodeStreamsPanelState = EpisodeStreamsPanelState()
+            PlayerStreamsRepository.clearEpisodeStreams()
+            controlsVisible = true
+        },
+        showSubmitIntroModal = showSubmitIntroModal,
+        activeVideoId = activeVideoId,
+        metaUiState = metaUiState,
+        displayedPositionMs = displayedPositionMs,
+        submitIntroSegmentType = submitIntroSegmentType,
+        onSubmitIntroSegmentTypeChanged = { submitIntroSegmentType = it },
+        submitIntroStartTimeStr = submitIntroStartTimeStr,
+        onSubmitIntroStartTimeChanged = { submitIntroStartTimeStr = it },
+        submitIntroEndTimeStr = submitIntroEndTimeStr,
+        onSubmitIntroEndTimeChanged = { submitIntroEndTimeStr = it },
+        onSubmitIntroDismissed = { showSubmitIntroModal = false },
+        onSubmitIntroSuccess = {
+            submitIntroStartTimeSec = 0.0
+            submitIntroEndTimeSec = 0.0
+            submitIntroStatusMessage = null
+            submitIntroStartTimeStr = "00:00"
+            submitIntroEndTimeStr = "00:00"
+            submitIntroSegmentType = "intro"
+            showSubmitIntroModal = false
+        },
+    )
+    StreamInfoOverlay(
+        visible = showStreamInfo,
+        addonName = activeProviderName,
+        addonLogo = activeAddonLogo,
+        streamName = activeStreamTitle,
+        streamDescription = activeStreamSubtitle,
+        playbackEngine = playerController?.playbackEngine,
+        serverPlayback = serverPlaybackSummary(),
+        mediaInfo = streamMediaInfo,
+        audioTrack = audioTracks.firstOrNull { it.index == selectedAudioIndex },
+        subtitleTrack = subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }.takeIf { !useCustomSubtitles },
+        addonSubtitle = selectedAddonSubtitle.takeIf { useCustomSubtitles },
+        onDismiss = { showStreamInfo = false },
+    )
+    val switchEngineTarget = playerController?.playbackEngine?.switchTarget
+    if (switchEngineTarget != null) {
+        NuvioStatusModal(
+            isVisible = showSwitchEngineConfirm,
+            title = stringResource(Res.string.player_engine_switch_title, switchEngineTarget.label),
+            message = stringResource(Res.string.player_engine_switch_message),
+            confirmText = stringResource(Res.string.action_switch),
+            dismissText = stringResource(Res.string.action_cancel),
+            onConfirm = {
+                showSwitchEngineConfirm = false
+                switchPlaybackEngine()
+            },
+            onDismiss = { showSwitchEngineConfirm = false },
+        )
+    }
+}
+
+internal fun PlayerScreenRuntime.importExternalSubtitle(path: String, fileName: String) {
+    val cleanName = fileName.substringBeforeLast('.')
+    val imported = AddonSubtitle(
+        id = "imported:${cleanName}:${path.hashCode()}",
+        url = path,
+        language = SubtitleImportedLanguageKey,
+        addonName = "Imported",
+        display = cleanName,
+    )
+    importedSubtitles = (importedSubtitles.filter { it.url != path } + imported)
+    isUserExplicitSubtitleSelection = true
+    selectedAddonSubtitleId = imported.id
+    selectedSubtitleIndex = -1
+    useCustomSubtitles = true
+    preferredSubtitleSelectionApplied = true
+    attachSelectedAddonSubtitleWithAutoSync(imported.url)
+    playerNotificationMessage = "Imported: $cleanName"
+    playerNotificationToken += 1L
+}

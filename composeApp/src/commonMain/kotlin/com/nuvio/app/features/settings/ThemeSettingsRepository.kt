@@ -1,0 +1,264 @@
+package com.nuvio.app.features.settings
+
+import com.nuvio.app.core.ui.AuraSettings
+import com.nuvio.app.core.ui.AppTheme
+import com.nuvio.app.core.ui.CustomThemeColors
+import com.nuvio.app.core.ui.NativeTabBridge
+import com.nuvio.app.core.ui.ThemeColors
+import com.nuvio.app.features.membership.MemberAccessRepository
+import com.nuvio.app.features.membership.availableAppThemes
+import com.nuvio.app.features.membership.resolveAppTheme
+import com.nuvio.app.features.membership.resolveCustomThemeColors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+object ThemeSettingsRepository {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val _selectedThemePreference = MutableStateFlow<AppTheme?>(null)
+    val selectedThemePreference: StateFlow<AppTheme?> = _selectedThemePreference.asStateFlow()
+    private val _selectedTheme = MutableStateFlow(AppTheme.WHITE)
+    val selectedTheme: StateFlow<AppTheme> = _selectedTheme.asStateFlow()
+
+    private val _customThemePreference = MutableStateFlow(CustomThemeColors.Default)
+    val customThemePreference: StateFlow<CustomThemeColors> = _customThemePreference.asStateFlow()
+    private val _customThemeColors = MutableStateFlow(CustomThemeColors.solid(CustomThemeColors.Default.second))
+    val customThemeColors: StateFlow<CustomThemeColors> = _customThemeColors.asStateFlow()
+
+    private val _surfaceStyle = MutableStateFlow(SurfaceStyle.DarkGlass)
+    val surfaceStyle: StateFlow<SurfaceStyle> = _surfaceStyle.asStateFlow()
+
+    // Preserve the pre-existing player appearance independently of page surface style.
+    private val _frostedGlassEnabled = MutableStateFlow(true)
+    val frostedGlassEnabled: StateFlow<Boolean> = _frostedGlassEnabled.asStateFlow()
+
+    private val _amoledEnabled = MutableStateFlow(false)
+    val amoledEnabled: StateFlow<Boolean> = _amoledEnabled.asStateFlow()
+
+    private val _liquidGlassNativeTabBarEnabled = MutableStateFlow(false)
+    val liquidGlassNativeTabBarEnabled: StateFlow<Boolean> = _liquidGlassNativeTabBarEnabled.asStateFlow()
+
+    private val _desktopNavigationLayout = MutableStateFlow(DesktopNavigationLayout.Default)
+    val desktopNavigationLayout: StateFlow<DesktopNavigationLayout> = _desktopNavigationLayout.asStateFlow()
+
+    private val _selectedAppLanguage = MutableStateFlow(AppLanguage.DEVICE)
+    val selectedAppLanguage: StateFlow<AppLanguage> = _selectedAppLanguage.asStateFlow()
+
+    private val _navBarStyle = MutableStateFlow(NavBarStyle.ADAPTIVE)
+    val navBarStyle: StateFlow<NavBarStyle> = _navBarStyle.asStateFlow()
+
+    private val _navBarGlowEnabled = MutableStateFlow(true)
+    val navBarGlowEnabled: StateFlow<Boolean> = _navBarGlowEnabled.asStateFlow()
+
+    private val _auraBackgroundEnabled = MutableStateFlow(true)
+    val auraBackgroundEnabled: StateFlow<Boolean> = _auraBackgroundEnabled.asStateFlow()
+
+    private val _auraSettings = MutableStateFlow(AuraSettings())
+    val auraSettings: StateFlow<AuraSettings> = _auraSettings.asStateFlow()
+
+    private val _appScale = MutableStateFlow(100)
+    val appScale: StateFlow<Int> = _appScale.asStateFlow()
+
+    fun setAppScale(scale: Int) {
+        ensureLoaded()
+        val clamped = scale.coerceIn(50, 150)
+        if (_appScale.value == clamped) return
+        _appScale.value = clamped
+        ThemeSettingsStorage.saveAppScale(clamped)
+    }
+
+    fun stepAppScale(delta: Int) {
+        ensureLoaded()
+        setAppScale(_appScale.value + delta)
+    }
+
+    fun setAuraSettings(settings: AuraSettings) {
+        ensureLoaded()
+        if (_auraSettings.value == settings) return
+        _auraSettings.value = settings
+        ThemeSettingsStorage.saveAuraSettings(settings.encode())
+    }
+
+    private var hasLoaded = false
+    private var observesMembership = false
+
+    fun ensureLoaded() {
+        observeMembership()
+        if (hasLoaded) return
+        loadFromDisk()
+    }
+
+    fun onProfileChanged() {
+        loadFromDisk()
+    }
+
+    fun clearLocalState() {
+        hasLoaded = false
+        _selectedThemePreference.value = null
+        _appScale.value = 100
+        _selectedTheme.value = AppTheme.WHITE
+        _customThemePreference.value = CustomThemeColors.Default
+        _customThemeColors.value = CustomThemeColors.solid(CustomThemeColors.Default.second)
+        _frostedGlassEnabled.value = true
+        _surfaceStyle.value = SurfaceStyle.DarkGlass
+        _amoledEnabled.value = false
+        _liquidGlassNativeTabBarEnabled.value = false
+        _desktopNavigationLayout.value = DesktopNavigationLayout.Default
+        NativeTabBridge.publishAccentColor(ThemeColors.White.nativeAccentHex)
+        NativeTabBridge.publishLiquidGlassEnabled(false)
+        _selectedAppLanguage.value = AppLanguage.DEVICE
+        _navBarGlowEnabled.value = true
+        _navBarStyle.value = NavBarStyle.ADAPTIVE
+        _auraBackgroundEnabled.value = true
+        _auraSettings.value = AuraSettings()
+    }
+
+    private fun loadFromDisk() {
+        hasLoaded = true
+        val stored = ThemeSettingsStorage.loadSelectedTheme()
+        val theme = if (stored != null) {
+            try {
+                AppTheme.valueOf(stored)
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        } else {
+            null
+        }
+        _selectedThemePreference.value = theme
+        _customThemePreference.value = CustomThemeColors.decode(ThemeSettingsStorage.loadCustomThemeColors())
+        applyEffectiveTheme()
+        val legacyFrostedEnabled = ThemeSettingsStorage.loadFrostedGlassEnabled()
+        _frostedGlassEnabled.value = legacyFrostedEnabled ?: true
+        _surfaceStyle.value = SurfaceStyle.fromStored(ThemeSettingsStorage.loadSurfaceStyle(), legacyFrostedEnabled)
+        _amoledEnabled.value = ThemeSettingsStorage.loadAmoledEnabled() ?: false
+        val liquidGlassEnabled = ThemeSettingsStorage.loadLiquidGlassNativeTabBarEnabled() ?: false
+        _liquidGlassNativeTabBarEnabled.value = liquidGlassEnabled
+        NativeTabBridge.publishLiquidGlassEnabled(liquidGlassEnabled)
+        _desktopNavigationLayout.value = DesktopNavigationLayout.fromName(
+            ThemeSettingsStorage.loadDesktopNavigationLayout(),
+        )
+        val appLanguage = AppLanguage.fromCode(ThemeSettingsStorage.loadSelectedAppLanguage())
+        ThemeSettingsStorage.applySelectedAppLanguage(appLanguage.code)
+        _selectedAppLanguage.value = appLanguage
+        _navBarGlowEnabled.value = ThemeSettingsStorage.loadNavBarGlowEnabled() ?: true
+        _navBarStyle.value = NavBarStyle.fromKey(ThemeSettingsStorage.loadNavBarStyle())
+        _auraBackgroundEnabled.value = ThemeSettingsStorage.loadAuraBackgroundEnabled() ?: true
+        _auraSettings.value = AuraSettings.decode(ThemeSettingsStorage.loadAuraSettings())
+        _appScale.value = ThemeSettingsStorage.loadAppScale()?.coerceIn(50, 150) ?: 100
+    }
+
+    fun setTheme(theme: AppTheme) {
+        ensureLoaded()
+        val access = MemberAccessRepository.access.value
+        if (theme !in availableAppThemes(access.entitlements)) return
+        if (_selectedThemePreference.value == theme) return
+        _selectedThemePreference.value = theme
+        ThemeSettingsStorage.saveSelectedTheme(theme.name)
+        applyEffectiveTheme()
+    }
+
+    fun setCustomTheme(colors: CustomThemeColors) {
+        ensureLoaded()
+        val access = MemberAccessRepository.access.value
+        val selectedColors = resolveCustomThemeColors(colors, access.tier)
+        ThemeSettingsStorage.saveCustomThemeColors(selectedColors.encode())
+        ThemeSettingsStorage.saveSelectedTheme(AppTheme.CUSTOM.name)
+        _customThemePreference.value = selectedColors
+        _selectedThemePreference.value = AppTheme.CUSTOM
+        applyEffectiveTheme()
+    }
+
+    fun setSurfaceStyle(style: SurfaceStyle) {
+        ensureLoaded()
+        if (_surfaceStyle.value == style) return
+        _surfaceStyle.value = style
+        ThemeSettingsStorage.saveSurfaceStyle(style.key)
+    }
+
+    fun setFrostedGlassEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_frostedGlassEnabled.value == enabled) return
+        _frostedGlassEnabled.value = enabled
+        ThemeSettingsStorage.saveFrostedGlassEnabled(enabled)
+    }
+
+    fun setAmoled(enabled: Boolean) {
+        ensureLoaded()
+        if (_amoledEnabled.value == enabled) return
+        _amoledEnabled.value = enabled
+        ThemeSettingsStorage.saveAmoledEnabled(enabled)
+    }
+
+    fun setLiquidGlassNativeTabBar(enabled: Boolean) {
+        ensureLoaded()
+        if (_liquidGlassNativeTabBarEnabled.value == enabled) return
+        _liquidGlassNativeTabBarEnabled.value = enabled
+        ThemeSettingsStorage.saveLiquidGlassNativeTabBarEnabled(enabled)
+        NativeTabBridge.publishLiquidGlassEnabled(enabled)
+    }
+
+    fun setDesktopNavigationLayout(layout: DesktopNavigationLayout) {
+        ensureLoaded()
+        if (_desktopNavigationLayout.value == layout) return
+        _desktopNavigationLayout.value = layout
+        ThemeSettingsStorage.saveDesktopNavigationLayout(layout.name)
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        ensureLoaded()
+        if (_selectedAppLanguage.value == language) return
+        ThemeSettingsStorage.saveSelectedAppLanguage(language.code)
+        ThemeSettingsStorage.applySelectedAppLanguage(language.code)
+        _selectedAppLanguage.value = language
+    }
+
+    fun setNavBarStyle(style: NavBarStyle) {
+        ensureLoaded()
+        if (_navBarStyle.value == style) return
+        _navBarStyle.value = style
+        ThemeSettingsStorage.saveNavBarStyle(style.key)
+    }
+
+    fun setNavBarGlowEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_navBarGlowEnabled.value == enabled) return
+        _navBarGlowEnabled.value = enabled
+        ThemeSettingsStorage.saveNavBarGlowEnabled(enabled)
+    }
+
+    fun setAuraBackgroundEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_auraBackgroundEnabled.value == enabled) return
+        _auraBackgroundEnabled.value = enabled
+        ThemeSettingsStorage.saveAuraBackgroundEnabled(enabled)
+    }
+
+    private fun observeMembership() {
+        if (observesMembership) return
+        observesMembership = true
+        MemberAccessRepository.ensureStarted()
+        scope.launch {
+            MemberAccessRepository.access.collect {
+                if (hasLoaded) applyEffectiveTheme()
+            }
+        }
+    }
+
+    private fun applyEffectiveTheme() {
+        val access = MemberAccessRepository.access.value
+        val effective = resolveAppTheme(
+            selectedTheme = _selectedThemePreference.value,
+            entitlements = access.entitlements,
+        )
+        _customThemeColors.value = resolveCustomThemeColors(_customThemePreference.value, access.tier)
+        _selectedTheme.value = effective
+        NativeTabBridge.publishAccentColor(
+            ThemeColors.getColorPalette(effective, _customThemeColors.value).nativeAccentHex,
+        )
+    }
+}

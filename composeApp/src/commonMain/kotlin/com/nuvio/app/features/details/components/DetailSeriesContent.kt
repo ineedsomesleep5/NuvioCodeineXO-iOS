@@ -1,0 +1,2902 @@
+package com.nuvio.app.features.details.components
+
+import com.nuvio.app.core.ui.frostedGlassSecondaryContentColor
+import com.nuvio.app.core.ui.FrostedGlassTokens
+import com.nuvio.app.core.ui.LocalSurfaceStyle
+import com.nuvio.app.core.ui.frostedGlassBorder
+import com.nuvio.app.features.settings.SurfaceStyle
+
+import com.nuvio.app.core.ui.softScrollToItem
+import com.nuvio.app.core.ui.navigationMotionDuration
+import com.nuvio.app.core.ui.SoftArrowScroll
+import com.nuvio.app.core.ui.BindArrowScrollViewport
+import com.nuvio.app.core.ui.rememberSoftArrowScroll
+
+import com.nuvio.app.core.ui.isRemoteKeyboardNavigationActive
+import com.nuvio.app.core.ui.nuvio
+import androidx.compose.ui.unit.TextUnit
+import com.nuvio.app.core.ui.remoteNavigationTarget
+import com.nuvio.app.core.ui.navigationGlass
+import com.nuvio.app.core.ui.navigationGlassFeedback
+import com.nuvio.app.core.ui.LocalFrostedGlassEnabled
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import com.nuvio.app.core.ui.RemoteNavigationFocusDestination
+import com.nuvio.app.core.ui.BindRemoteNavigationFocusDestination
+import com.nuvio.app.core.ui.remoteNavigationFocusDestination
+import com.nuvio.app.core.ui.remoteNavigationUp
+import com.nuvio.app.core.ui.remoteNavigationDown
+import com.nuvio.app.core.ui.LocalDesktopSidebarActive
+import com.nuvio.app.core.ui.LocalPosterShelfItem
+import com.nuvio.app.core.ui.PosterShelfItem
+import com.nuvio.app.core.ui.PosterShelfController
+import com.nuvio.app.core.ui.PosterShelfScrollOwner
+import com.nuvio.app.core.ui.rememberPosterShelfController
+import com.nuvio.app.core.ui.revealShelfItem
+import androidx.compose.runtime.CompositionLocalProvider
+import com.nuvio.app.core.ui.remoteNavigationGroup
+import com.nuvio.app.core.ui.NuvioTokens
+
+import com.nuvio.app.core.ui.rememberImdbLogoPainter
+import com.nuvio.app.core.ui.rememberAnimatedArtworkAnimation
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.FlowRow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.anime.AnimeFillerSettingsRepository
+import com.nuvio.app.features.anime.FillerBadge
+import com.nuvio.app.features.anime.MixedBadge
+import com.nuvio.app.features.player.MediaClassifier
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.nuvio.app.core.ui.collectIsRemoteHoveredAsState
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import com.nuvio.app.core.ui.NuvioAsyncImage as AsyncImage
+import co.touchlab.kermit.Logger
+import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.format.formatReleaseDateForDisplay
+import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
+import com.nuvio.app.core.ui.NuvioAnimatedWatchedBadge
+import com.nuvio.app.core.ui.NuvioCardDepthSurface
+import com.nuvio.app.core.ui.NuvioProgressBar
+import com.nuvio.app.core.ui.desktopPageHorizontalPaddingForWidth
+import com.nuvio.app.core.ui.backdropControlColor
+import com.nuvio.app.core.ui.nuvioCardDepth
+import com.nuvio.app.core.ui.nuvioCenterScrollConsumer
+import com.nuvio.app.core.ui.nuvioDesktopDragScroll
+import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
+import com.nuvio.app.core.ui.nuvioPosterRowGutterClip
+import com.nuvio.app.core.ui.nuvioPosterRowEdgeFade
+import com.nuvio.app.core.ui.nuvioPosterRowMouseWheelScroll
+import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.core.ui.posterGlow
+import com.nuvio.app.core.ui.rememberArtworkGlowState
+import com.nuvio.app.core.ui.PosterGlowOutset
+import com.nuvio.app.core.ui.DesktopPosterRowHoverInset
+import com.nuvio.app.core.ui.PosterRowHoverViewport
+import com.nuvio.app.core.ui.PosterRowItem
+import com.nuvio.app.core.ui.nuvioShelfHoverOverdraw
+import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.home.PosterGutterSize
+import com.nuvio.app.features.home.HomeCatalogSettingsRepository
+import com.nuvio.app.isDesktop
+import com.nuvio.app.features.details.EpisodeRatingsVisibility
+import com.nuvio.app.features.details.MetaEpisodeCardStyle
+import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.details.SeasonViewMode
+import com.nuvio.app.features.details.SeasonViewModeStorage
+import com.nuvio.app.features.details.formatRuntimeFromMinutes
+import com.nuvio.app.features.details.groupedEpisodesForDisplay
+import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
+import com.nuvio.app.features.details.seasonSortKey
+import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.features.watching.application.WatchingState
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import nuvio.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.getString
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
+import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
+import com.nuvio.app.core.i18n.localizedEpisodeTitle
+
+private val log = Logger.withTag("SeriesContent")
+private val SeriesScrollPostersExtraGutter = 20.dp
+
+private class SeriesRowNavigation(
+    val modifier: Modifier,
+    val itemModifier: (Int) -> Modifier,
+    val controller: PosterShelfController? = null,
+)
+
+@Composable
+private fun rememberSeriesRowNavigation(state: LazyListState, items: List<Int>): SeriesRowNavigation {
+    val allowSidebar = LocalDesktopSidebarActive.current
+    val controller = rememberPosterShelfController(
+        state, items, allowSidebarEntry = allowSidebar, precedingPosterVisible = true,
+    )
+    if (controller != null) {
+        return SeriesRowNavigation(Modifier.remoteNavigationGroup(rememberRow = true), { Modifier }, controller)
+    }
+    val requesters = remember(items) { List(items.size) { FocusRequester() } }
+    var focusedIndex by remember(items) { mutableStateOf(0) }
+    var moving by remember(items) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    return SeriesRowNavigation(
+        modifier = Modifier.onPreviewKeyEvent { event ->
+            val step = when (event.key) {
+                Key.DirectionLeft -> -1
+                Key.DirectionRight -> 1
+                else -> return@onPreviewKeyEvent false
+            }
+            if (event.type == KeyEventType.KeyDown && !moving) {
+                val next = focusedIndex + step
+                if (next in requesters.indices) {
+                    moving = true
+                    scope.launch {
+                        try {
+                            if (state.layoutInfo.visibleItemsInfo.none { it.index == next }) {
+                                state.softScrollToItem(next)
+                                withFrameNanos { }
+                            }
+                            requesters[next].requestFocus()
+                        } finally {
+                            moving = false
+                        }
+                    }
+                    return@onPreviewKeyEvent true
+                } else if (step < 0) {
+                    return@onPreviewKeyEvent false
+                }
+            }
+            if (event.type == KeyEventType.KeyUp) false else true
+        }.remoteNavigationGroup(rememberRow = true),
+        itemModifier = { index ->
+            Modifier.focusRequester(requesters[index]).onFocusChanged {
+                if (it.isFocused) focusedIndex = index
+            }
+        },
+    )
+}
+
+@Composable
+fun DetailSeriesContent(
+    meta: MetaDetails,
+    modifier: Modifier = Modifier,
+    showHeader: Boolean = true,
+    horizontalScrollPadding: Dp = 0.dp,
+    preferredSeasonNumber: Int? = null,
+    preferredEpisodeNumber: Int? = null,
+    episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal,
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    watchedKeys: Set<String> = emptySet(),
+    episodeRatings: Map<Pair<Int, Int>, Double> = emptyMap(),
+    episodeRatingsVisibility: EpisodeRatingsVisibility = EpisodeRatingsVisibility.SHOW_ALL,
+    blurUnwatchedEpisodes: Boolean = false,
+    onEpisodeClick: ((MetaVideo) -> Unit)? = null,
+    onEpisodeLongPress: ((MetaVideo) -> Unit)? = null,
+    onSeasonLongPress: ((Int) -> Unit)? = null,
+    navigationEntry: RemoteNavigationFocusDestination? = null,
+    episodeNavigationEntry: RemoteNavigationFocusDestination? = null,
+    onEntryUp: (suspend () -> Unit)? = null,
+    onEpisodesDown: (suspend () -> Unit)? = null,
+) {
+    val hasVideos = meta.videos.isNotEmpty()
+    if (meta.type != "series" && !hasVideos) return
+
+    if (meta.videos.isEmpty()) {
+        DetailSection(
+            title = stringResource(Res.string.settings_meta_episodes),
+            modifier = modifier,
+            showHeader = showHeader,
+        ) {
+            Text(
+                text = when {
+                    meta.status.equals("Not yet aired", ignoreCase = true) || meta.hasScheduledVideos ->
+                        stringResource(Res.string.details_series_unpublished)
+                    else ->
+                        stringResource(Res.string.details_series_no_metadata)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    val isFillerEnabled by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.enabled
+    }.collectAsStateWithLifecycle()
+    val hideFillerEpisodes by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.hideFillers
+    }.collectAsStateWithLifecycle()
+    val shouldHideFillers = isFillerEnabled && hideFillerEpisodes
+
+    val groupedEpisodes = remember(meta.videos, shouldHideFillers) {
+        log.d { "videos count=${meta.videos.size}, type=${meta.type}" }
+        val withSeasonOrEp = meta.videos.filter { it.season != null || it.episode != null }
+        log.d { "videos with season/episode=${withSeasonOrEp.size}" }
+        if (meta.videos.isNotEmpty() && withSeasonOrEp.isEmpty()) {
+            log.w { "All videos lack season/episode fields! First: ${meta.videos.first()}" }
+        }
+        meta.groupedEpisodesForDisplay(hideFillerEpisodes = shouldHideFillers)
+    }
+
+    if (groupedEpisodes.isEmpty()) {
+        if (meta.type == "series") {
+            DetailSection(
+                title = stringResource(Res.string.settings_meta_episodes),
+                modifier = modifier,
+                showHeader = showHeader,
+            ) {
+                Text(
+                    text = stringResource(Res.string.details_series_missing_numbers),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        return
+    }
+
+    val seasons = groupedEpisodes.keys.sortedBy(::seasonSortKey)
+    val defaultSeason = preferredSeasonNumber
+        ?.takeIf { it in groupedEpisodes }
+        ?: seasons.firstOrNull() ?: 1
+    var selectedSeasonOverride by rememberSaveable(meta.id) { mutableStateOf<Int?>(null) }
+    val currentSeason = selectedSeasonOverride
+        ?.takeIf { it in groupedEpisodes }
+        ?: defaultSeason
+
+    val homeCatalogSettings by remember {
+        HomeCatalogSettingsRepository.snapshot()
+        HomeCatalogSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val scrollPostersLayoutEnabled = homeCatalogSettings.scrollPostersLayoutEnabled && isDesktop
+    val posterGutterSize = homeCatalogSettings.posterGutterSize
+
+    val isAnime = remember(meta) {
+        MediaClassifier.classify(meta).isAnime || meta.videos.any { it.isFiller || it.isMixed }
+    }
+
+    val isEnhanced = episodeCardStyle == MetaEpisodeCardStyle.Enhanced
+    var episodeListOpen by remember(meta.id) { mutableStateOf(false) }
+    val viewListRequester = remember(meta.id) { FocusRequester() }
+    val popupScope = rememberCoroutineScope()
+    val continuousListState = rememberContinuousEpisodeListState(meta.id, currentSeason, seasons, groupedEpisodes)
+    if (isEnhanced && episodeListOpen) {
+        ContinuousEpisodeListPopup(
+            meta = meta,
+            seasons = seasons,
+            groupedEpisodes = groupedEpisodes,
+            state = continuousListState,
+            progressByVideoId = progressByVideoId,
+            watchedKeys = watchedKeys,
+            episodeRatings = episodeRatings,
+            episodeRatingsVisibility = episodeRatingsVisibility,
+            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+            onDismiss = {
+                episodeListOpen = false
+                popupScope.launch {
+                    withFrameNanos { }
+                    runCatching { viewListRequester.requestFocus() }
+                }
+            },
+            onEpisodeClick = { episode ->
+                episodeListOpen = false
+                onEpisodeClick?.invoke(episode)
+            },
+            onEpisodeLongPress = onEpisodeLongPress,
+        )
+    }
+    val fixedPath = isDesktop && isEnhanced && navigationEntry != null
+    val rememberedEpisodes = remember(meta.id) { androidx.compose.runtime.mutableStateMapOf<Int, MetaVideo>() }
+    val enhancedFillerNavigation = isAnime && isEnhanced && navigationEntry != null
+    val seasonNavigationEntry = if (enhancedFillerNavigation) {
+        remember(meta.id) { RemoteNavigationFocusDestination() }
+    } else navigationEntry
+    val viewListFocus = remember(meta.id, isEnhanced, navigationEntry) {
+        if (isEnhanced && navigationEntry != null) RemoteNavigationFocusDestination() else null
+    }
+    val firstEpisodeFocus = remember(meta.id, navigationEntry, episodeNavigationEntry, seasons.size, enhancedFillerNavigation, fixedPath) {
+        if (fixedPath) episodeNavigationEntry ?: RemoteNavigationFocusDestination()
+        else if (seasons.size <= 1 && !enhancedFillerNavigation) navigationEntry
+        else navigationEntry?.let { RemoteNavigationFocusDestination() }
+    }
+    val fillerDown: (suspend () -> Unit)? = if (enhancedFillerNavigation) ({
+        val moved = if (fixedPath || seasons.size > 1) seasonNavigationEntry?.requestFocus(restoreRememberedRow = !fixedPath)
+        else if (viewListFocus != null) viewListFocus.requestFocus()
+        else firstEpisodeFocus?.requestFocus()
+        if (moved != true) onEpisodesDown?.invoke()
+        Unit
+    }) else null
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val sizing = seriesContentSizing(
+            maxWidthDp = maxWidth.value,
+            reduceSeasonSize = scrollPostersLayoutEnabled,
+        )
+        val containerWidthDp = maxWidth.value
+
+        Column(
+            verticalArrangement = Arrangement.spacedBy(if (isDesktop) 12.dp else 16.dp),
+        ) {
+            SeriesSeasonSelector(
+                navigationEntry = seasonNavigationEntry,
+                fillerNavigationEntry = navigationEntry.takeIf { enhancedFillerNavigation },
+                onFillerUp = onEntryUp.takeIf { enhancedFillerNavigation },
+                onFillerDown = fillerDown,
+                onSeasonDown = if (fixedPath) {
+                    {
+                        if (viewListFocus?.requestFocus(restoreRememberedRow = false) != true &&
+                            firstEpisodeFocus?.requestFocus(restoreRememberedRow = false) != true) onEpisodesDown?.invoke()
+                        Unit
+                    }
+                } else if (isEnhanced) {
+                    viewListFocus?.let { { if (!it.requestFocus()) { if (firstEpisodeFocus?.requestFocus() != true) onEpisodesDown?.invoke() }; Unit } }
+                        ?: firstEpisodeFocus?.let { { if (!it.requestFocus()) onEpisodesDown?.invoke(); Unit } }
+                } else {
+                    firstEpisodeFocus?.let { { if (!it.requestFocus()) onEpisodesDown?.invoke(); Unit } }
+                },
+                onSeasonUp = if (enhancedFillerNavigation) ({ navigationEntry?.requestFocus(); Unit }) else onEntryUp,
+                meta = meta,
+                seasons = seasons,
+                groupedEpisodes = groupedEpisodes,
+                currentSeason = currentSeason,
+                sizing = sizing,
+                horizontalScrollPadding = horizontalScrollPadding,
+                scrollPostersLayoutEnabled = scrollPostersLayoutEnabled,
+                posterGutterSize = posterGutterSize,
+                episodeCardStyle = episodeCardStyle,
+                onSelect = { selectedSeasonOverride = it },
+                onLongPress = onSeasonLongPress,
+            )
+
+            AnimatedContent(
+                targetState = currentSeason,
+                transitionSpec = {
+                    val fromIdx = seasons.indexOf(initialState).takeIf { it >= 0 } ?: 0
+                    val toIdx = seasons.indexOf(targetState).takeIf { it >= 0 } ?: 0
+                    val dir = if (toIdx >= fromIdx) 1 else -1
+                    val transform = (fadeIn(tween(navigationMotionDuration(220))) + slideInHorizontally(tween(navigationMotionDuration(220))) { dir * it / 5 })
+                        .togetherWith(
+                            fadeOut(tween(navigationMotionDuration(170))) + slideOutHorizontally(tween(navigationMotionDuration(170))) { -dir * it / 5 },
+                        )
+                    if (isEnhanced) transform.using(SizeTransform(clip = false)) else transform
+                },
+                label = "season_episodes",
+            ) { seasonForContent ->
+                val episodeListState = rememberLazyListState()
+                val canScrollBack by remember {
+                    derivedStateOf { episodeListState.firstVisibleItemIndex > 0 || episodeListState.firstVisibleItemScrollOffset > 0 }
+                }
+                val canScrollFwd by remember {
+                    derivedStateOf { episodeListState.canScrollForward }
+                }
+                val episodeArrows = rememberSoftArrowScroll(episodeListState)
+                val seasonEpisodes = groupedEpisodes[seasonForContent].orEmpty()
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    val showTitle = (!isDesktop || seasons.size <= 1) && !isEnhanced
+                    val showSingleSeasonAnimeToggles = seasons.size <= 1 && isAnime && !fixedPath
+                    if (showTitle || showSingleSeasonAnimeToggles) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (showTitle) {
+                                DetailSectionTitle(
+                                    title = if (meta.type != "series" && seasonForContent <= 0) {
+                                        stringResource(Res.string.details_videos)
+                                    } else {
+                                        seasonForContent.label()
+                                    },
+                                    fullWidth = false,
+                                )
+                            }
+                            if (showSingleSeasonAnimeToggles) {
+                                AnimeFillerTogglesRow(
+                                    sizing = sizing,
+                                    navigationEntry = navigationEntry.takeIf { enhancedFillerNavigation },
+                                    onUp = onEntryUp.takeIf { enhancedFillerNavigation },
+                                    onDown = fillerDown,
+                                )
+                            }
+                        }
+                    }
+
+                    if (isEnhanced) {
+                        val effectiveEpisodesHeaderSize = if (isEnhanced) sizing.seasonHeaderSize * 0.95f else sizing.seasonHeaderSize
+                        val episodesHeaderShadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.78f),
+                            offset = Offset(0f, 2f),
+                            blurRadius = 8f,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().remoteNavigationGroup(rememberRow = true),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(Res.string.settings_meta_episodes),
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = effectiveEpisodesHeaderSize,
+                                    fontWeight = FontWeight.SemiBold,
+                                    shadow = episodesHeaderShadow,
+                                ),
+                                color = MaterialTheme.colorScheme.onBackground,
+                            )
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                HeaderScrollArrowButton(
+                                    direction = ScrollNavDirection.Left,
+                                    enabled = canScrollBack,
+                                    onClick = {
+                                        episodeArrows.scrollPage(forward = false)
+                                    },
+                                )
+                                HeaderScrollArrowButton(
+                                    direction = ScrollNavDirection.Right,
+                                    enabled = canScrollFwd,
+                                    onClick = {
+                                        episodeArrows.scrollPage(forward = true)
+                                    },
+                                )
+                                ViewListButton(
+                                    modifier = Modifier.focusRequester(viewListRequester),
+                                    focusDestination = viewListFocus,
+                                    onUp = {
+                                        if (fixedPath) seasonNavigationEntry?.requestFocus(restoreRememberedRow = false)
+                                        else if (seasons.size > 1) seasonNavigationEntry?.requestFocus()
+                                        else if (enhancedFillerNavigation) navigationEntry?.requestFocus()
+                                        else onEntryUp?.invoke()
+                                        Unit
+                                    },
+                                    onDown = {
+                                        firstEpisodeFocus?.requestFocus(restoreRememberedRow = !fixedPath)
+                                        Unit
+                                    },
+                                    onClick = { episodeListOpen = true },
+                                )
+                            }
+                        }
+                    }
+
+                    if (seasonEpisodes.isEmpty()) {
+                        Text(
+                            text = if (isAnime && shouldHideFillers) {
+                                stringResource(Res.string.anime_filler_all_hidden)
+                            } else {
+                                stringResource(Res.string.compose_player_no_episodes_available)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 16.dp),
+                        )
+                    } else if (episodeCardStyle == MetaEpisodeCardStyle.Horizontal || isEnhanced) {
+                        EpisodeHorizontalRow(
+                            firstEpisodeFocus = firstEpisodeFocus.takeIf { seasonForContent == currentSeason },
+                            fixedPath = fixedPath,
+                            rememberedEpisode = rememberedEpisodes[seasonForContent],
+                            onEpisodeFocused = if (fixedPath) ({ episode ->
+                                if (seasonForContent == currentSeason) rememberedEpisodes[seasonForContent] = episode
+                            }) else null,
+                            onEpisodeUp = if (navigationEntry == null) null else ({
+                                if (fixedPath) {
+                                    if (viewListFocus?.requestFocus(restoreRememberedRow = false) != true &&
+                                        seasonNavigationEntry?.requestFocus(restoreRememberedRow = false) != true) onEntryUp?.invoke()
+                                } else if (isEnhanced) {
+                                    val moved = viewListFocus?.requestFocus()
+                                    if (moved != true) {
+                                        if (seasons.size > 1) seasonNavigationEntry?.requestFocus()
+                                        else if (enhancedFillerNavigation) navigationEntry.requestFocus()
+                                        else onEntryUp?.invoke()
+                                    }
+                                } else {
+                                    if (seasons.size > 1) seasonNavigationEntry?.requestFocus()
+                                    else if (enhancedFillerNavigation) navigationEntry.requestFocus()
+                                    else onEntryUp?.invoke()
+                                }
+                                Unit
+                            }),
+                            onEpisodeDown = onEpisodesDown,
+                            episodes = seasonEpisodes,
+                            maxWidthDp = containerWidthDp,
+                            horizontalScrollPadding = horizontalScrollPadding,
+                            parentMetaId = meta.id,
+                            metaType = meta.type,
+                            watchedKeys = watchedKeys,
+                            fallbackImage = meta.background ?: meta.poster,
+                            progressByVideoId = progressByVideoId,
+                            episodeRatings = episodeRatings,
+                            episodeRatingsVisibility = episodeRatingsVisibility,
+                            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                            preferredEpisodeNumber = preferredEpisodeNumberForSeason(
+                                displayedSeasonNumber = seasonForContent,
+                                preferredSeasonNumber = preferredSeasonNumber,
+                                preferredEpisodeNumber = preferredEpisodeNumber,
+                            ),
+                            scrollPostersLayoutEnabled = scrollPostersLayoutEnabled,
+                            posterGutterSize = posterGutterSize,
+                            isEnhanced = isEnhanced,
+                            listState = episodeListState,
+                            episodeArrows = episodeArrows,
+                            onEpisodeClick = onEpisodeClick,
+                            onEpisodeLongPress = onEpisodeLongPress,
+                        )
+                    } else {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(sizing.cardGap),
+                        ) {
+                            seasonEpisodes.forEach { episode ->
+                                val episodeVideoId = buildPlaybackVideoId(
+                                    parentMetaId = meta.id,
+                                    seasonNumber = episode.season,
+                                    episodeNumber = episode.episode,
+                                    fallbackVideoId = episode.id,
+                                )
+                                EpisodeListCard(
+                                    video = episode,
+                                    fallbackImage = meta.background ?: meta.poster,
+                                    progressEntry = progressByVideoId[episodeVideoId],
+                                    imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] } ?: episode.rating,
+                                    isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+                                        WatchingState.isEpisodeWatched(
+                                            watchedKeys = watchedKeys,
+                                            metaType = meta.type,
+                                            metaId = meta.id,
+                                            episode = episode,
+                                        ),
+                                    episodeRatingsVisibility = episodeRatingsVisibility,
+                                    blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                                    sizing = sizing,
+                                    onClick = { onEpisodeClick?.invoke(episode) },
+                                    onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DetailSeriesListHeader(
+    meta: MetaDetails,
+    groupedEpisodes: Map<Int, List<MetaVideo>>,
+    seasons: List<Int>,
+    currentSeason: Int,
+    horizontalScrollPadding: Dp,
+    onSeasonSelect: (Int) -> Unit,
+    onSeasonLongPress: ((Int) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val homeCatalogSettings by remember {
+        HomeCatalogSettingsRepository.snapshot()
+        HomeCatalogSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val scrollPostersLayoutEnabled = homeCatalogSettings.scrollPostersLayoutEnabled && isDesktop
+    val posterGutterSize = homeCatalogSettings.posterGutterSize
+
+    val isAnime = remember(meta) {
+        MediaClassifier.classify(meta).isAnime || meta.videos.any { it.isFiller || it.isMixed }
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val sizing = seriesContentSizing(
+            maxWidthDp = maxWidth.value,
+            reduceSeasonSize = scrollPostersLayoutEnabled,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(if (isDesktop) 12.dp else 16.dp)) {
+            SeriesSeasonSelector(
+                meta = meta,
+                seasons = seasons,
+                groupedEpisodes = groupedEpisodes,
+                currentSeason = currentSeason,
+                sizing = sizing,
+                horizontalScrollPadding = horizontalScrollPadding,
+                scrollPostersLayoutEnabled = scrollPostersLayoutEnabled,
+                posterGutterSize = posterGutterSize,
+                onSelect = onSeasonSelect,
+                onLongPress = onSeasonLongPress,
+            )
+            if (seasons.size == 1) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailSectionTitle(
+                        title = if (meta.type != "series" && currentSeason <= 0) {
+                            stringResource(Res.string.details_videos)
+                        } else {
+                            currentSeason.label()
+                        },
+                        fullWidth = false,
+                    )
+                    if (isAnime) {
+                        AnimeFillerTogglesRow(sizing = sizing)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DetailSeriesListEpisode(
+    meta: MetaDetails,
+    episode: MetaVideo,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+    watchedKeys: Set<String>,
+    episodeRatings: Map<Pair<Int, Int>, Double>,
+    episodeRatingsVisibility: EpisodeRatingsVisibility,
+    blurUnwatchedEpisodes: Boolean,
+    onEpisodeClick: ((MetaVideo) -> Unit)?,
+    onEpisodeLongPress: ((MetaVideo) -> Unit)?,
+    modifier: Modifier = Modifier,
+    popupPresentation: Boolean = false,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val baseSizing = seriesContentSizing(maxWidth.value)
+        val sizing = if (popupPresentation) baseSizing.copy(
+            imageWidth = (maxWidth * 0.28f).coerceIn(96.dp, 260.dp),
+            titleMaxLines = 2,
+            overviewMaxLines = 3,
+        ) else baseSizing
+        val episodeVideoId = buildPlaybackVideoId(
+            parentMetaId = meta.id,
+            seasonNumber = episode.season,
+            episodeNumber = episode.episode,
+            fallbackVideoId = episode.id,
+        )
+        EpisodeListCard(
+            video = episode,
+            fallbackImage = meta.background ?: meta.poster,
+            progressEntry = progressByVideoId[episodeVideoId],
+            imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] } ?: episode.rating,
+            isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+                WatchingState.isEpisodeWatched(
+                    watchedKeys = watchedKeys,
+                    metaType = meta.type,
+                    metaId = meta.id,
+                    episode = episode,
+                ),
+            episodeRatingsVisibility = episodeRatingsVisibility,
+            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+            sizing = sizing,
+            popupPresentation = popupPresentation,
+            onClick = { onEpisodeClick?.invoke(episode) },
+            onLongPress = { onEpisodeLongPress?.invoke(episode) },
+        )
+    }
+}
+
+@Composable
+private fun SeriesSeasonSelector(
+    meta: MetaDetails,
+    seasons: List<Int>,
+    groupedEpisodes: Map<Int, List<MetaVideo>>,
+    currentSeason: Int,
+    sizing: SeriesContentSizing,
+    horizontalScrollPadding: Dp,
+    scrollPostersLayoutEnabled: Boolean = false,
+    posterGutterSize: PosterGutterSize = PosterGutterSize.Default,
+    episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal,
+    onSelect: (Int) -> Unit,
+    onLongPress: ((Int) -> Unit)?,
+    navigationEntry: RemoteNavigationFocusDestination? = null,
+    fillerNavigationEntry: RemoteNavigationFocusDestination? = null,
+    onFillerUp: (suspend () -> Unit)? = null,
+    onFillerDown: (suspend () -> Unit)? = null,
+    onSeasonDown: (suspend () -> Unit)? = null,
+    onSeasonUp: (suspend () -> Unit)? = null,
+) {
+    val isEnhanced = episodeCardStyle == MetaEpisodeCardStyle.Enhanced
+    if (seasons.isEmpty() || (seasons.size <= 1 && !(isDesktop && isEnhanced && navigationEntry != null))) return
+    val isAnime = remember(meta) {
+        MediaClassifier.classify(meta).isAnime || meta.videos.any { it.isFiller || it.isMixed }
+    }
+
+    val seasonListState = rememberLazyListState()
+    val canScrollBack by remember { derivedStateOf { seasonListState.firstVisibleItemIndex > 0 || seasonListState.firstVisibleItemScrollOffset > 0 } }
+    val canScrollFwd by remember {
+        derivedStateOf {
+            val layoutInfo = seasonListState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            if (total == 0) false
+            else {
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
+                lastVisible != null && (lastVisible.index < total - 1 || lastVisible.offset + lastVisible.size > layoutInfo.viewportEndOffset)
+            }
+        }
+    }
+    val hasOverflowingSeasons by remember { derivedStateOf { canScrollBack || canScrollFwd } }
+    val seasonArrows = rememberSoftArrowScroll(seasonListState)
+
+    var seasonViewMode by remember {
+        mutableStateOf(SeasonViewModeStorage.load() ?: SeasonViewMode.Posters)
+    }
+    val hasSeasonPosters = seasons.any { season ->
+        resolveSeasonPoster(
+            season = season,
+            groupedEpisodes = groupedEpisodes,
+            meta = meta,
+        ) != null
+    }
+    Column(
+        modifier = if (isEnhanced) Modifier else Modifier.animateContentSize(animationSpec = tween(280)),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (isEnhanced) {
+            val effectiveSeasonHeaderSize = if (isEnhanced) sizing.seasonHeaderSize * 0.95f else sizing.seasonHeaderSize
+            val seasonHeaderShadow = Shadow(
+                color = Color.Black.copy(alpha = 0.78f),
+                offset = Offset(0f, 2f),
+                blurRadius = 8f,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FlowRow(
+                    modifier = Modifier.weight(1f, fill = false),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(Res.string.details_seasons),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = effectiveSeasonHeaderSize,
+                            fontWeight = FontWeight.SemiBold,
+                            shadow = seasonHeaderShadow,
+                        ),
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    if (isAnime) {
+                        AnimeFillerTogglesRow(
+                            sizing = sizing,
+                            navigationEntry = fillerNavigationEntry,
+                            onUp = onFillerUp,
+                            onDown = onFillerDown,
+                            isEnhanced = true,
+                        )
+                    }
+                }
+
+                if (hasOverflowingSeasons) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        HeaderScrollArrowButton(
+                            direction = ScrollNavDirection.Left,
+                            enabled = canScrollBack,
+                            onClick = {
+                                seasonArrows.scrollPage(forward = false)
+                            },
+                        )
+                        HeaderScrollArrowButton(
+                            direction = ScrollNavDirection.Right,
+                            enabled = canScrollFwd,
+                            onClick = {
+                                seasonArrows.scrollPage(forward = true)
+                            },
+                        )
+                    }
+                }
+            }
+        } else {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.details_seasons),
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = sizing.seasonHeaderSize,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                if (hasSeasonPosters) {
+                    SeasonViewModeToggle(
+                        mode = seasonViewMode,
+                        sizing = sizing,
+                        onClick = {
+                            val next = seasonViewMode.toggled()
+                            seasonViewMode = next
+                            SeasonViewModeStorage.save(next)
+                        },
+                    )
+                }
+                if (isAnime) {
+                    AnimeFillerTogglesRow(sizing = sizing, navigationEntry = fillerNavigationEntry, onUp = onFillerUp, onDown = onFillerDown)
+                }
+            }
+        }
+
+        if (isEnhanced) {
+            SeasonTextChipScrollRow(
+                navigationEntry = navigationEntry,
+                onSeasonDown = onSeasonDown,
+                onSeasonUp = onSeasonUp,
+                seasons = seasons,
+                currentSeason = currentSeason,
+                sizing = sizing,
+                horizontalScrollPadding = horizontalScrollPadding,
+                scrollPostersLayoutEnabled = scrollPostersLayoutEnabled,
+                posterGutterSize = posterGutterSize,
+                showHoverPosterPreview = true,
+                seasonPosterForSeason = { season ->
+                    resolveSeasonPoster(
+                        season = season,
+                        groupedEpisodes = groupedEpisodes,
+                        meta = meta,
+                    ) ?: meta.poster ?: meta.background
+                },
+                isEnhanced = true,
+                seasonListState = seasonListState,
+                seasonArrows = seasonArrows,
+                onSelect = onSelect,
+                onLongPress = onLongPress,
+            )
+        } else if (hasSeasonPosters) {
+            Crossfade(
+                targetState = seasonViewMode,
+                animationSpec = tween(280),
+                label = "season_selector_layout",
+            ) { mode ->
+                when (mode) {
+                    SeasonViewMode.Posters -> SeasonPosterScrollRow(
+                        navigationEntry = navigationEntry,
+                        onSeasonDown = onSeasonDown,
+                        onSeasonUp = onSeasonUp,
+                        seasons = seasons,
+                        groupedEpisodes = groupedEpisodes,
+                        meta = meta,
+                        currentSeason = currentSeason,
+                        sizing = sizing,
+                        horizontalScrollPadding = horizontalScrollPadding,
+                        scrollPostersLayoutEnabled = scrollPostersLayoutEnabled,
+                        posterGutterSize = posterGutterSize,
+                        onSelect = onSelect,
+                        onLongPress = onLongPress,
+                    )
+                    SeasonViewMode.Text -> SeasonTextChipScrollRow(
+                        navigationEntry = navigationEntry,
+                        onSeasonDown = onSeasonDown,
+                        onSeasonUp = onSeasonUp,
+                        seasons = seasons,
+                        currentSeason = currentSeason,
+                        sizing = sizing,
+                        horizontalScrollPadding = horizontalScrollPadding,
+                        scrollPostersLayoutEnabled = scrollPostersLayoutEnabled,
+                        posterGutterSize = posterGutterSize,
+                        onSelect = onSelect,
+                        onLongPress = onLongPress,
+                    )
+                }
+            }
+        } else {
+            SeasonTextChipScrollRow(
+                navigationEntry = navigationEntry,
+                onSeasonDown = onSeasonDown,
+                onSeasonUp = onSeasonUp,
+                seasons = seasons,
+                currentSeason = currentSeason,
+                sizing = sizing,
+                horizontalScrollPadding = horizontalScrollPadding,
+                scrollPostersLayoutEnabled = scrollPostersLayoutEnabled,
+                posterGutterSize = posterGutterSize,
+                onSelect = onSelect,
+                onLongPress = onLongPress,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SeasonViewModeToggle(
+    mode: SeasonViewMode,
+    sizing: SeriesContentSizing,
+    onClick: () -> Unit,
+) {
+    val isPosters = mode == SeasonViewMode.Posters
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .remoteNavigationTarget(shape = RoundedCornerShape(8.dp)).clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = if (isPosters) {
+                stringResource(Res.string.details_season_view_posters)
+            } else {
+                stringResource(Res.string.details_season_view_text)
+            },
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontSize = sizing.seasonToggleTextSize,
+                fontWeight = FontWeight.SemiBold,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AnimeFillerTogglesRow(
+    sizing: SeriesContentSizing,
+    modifier: Modifier = Modifier,
+    navigationEntry: RemoteNavigationFocusDestination? = null,
+    onUp: (suspend () -> Unit)? = null,
+    onDown: (suspend () -> Unit)? = null,
+    isEnhanced: Boolean = false,
+) {
+    val isFillerEnabled by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.enabled
+    }.collectAsStateWithLifecycle()
+    val hideFillerEpisodes by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.hideFillers
+    }.collectAsStateWithLifecycle()
+    val pillTextSize = if (isEnhanced) sizing.seasonToggleTextSize * 0.95f else sizing.seasonToggleTextSize
+    val pillScale = if (isEnhanced) 0.95f else 1f
+
+    Row(
+        modifier = modifier.remoteNavigationGroup(rememberRow = true),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AnimeFillerChip(
+            label = stringResource(Res.string.anime_filler_markers),
+            isActive = isFillerEnabled,
+            textSize = pillTextSize,
+            scale = pillScale,
+            modifier = Modifier.remoteNavigationFocusDestination(navigationEntry)
+                .remoteNavigationUp(onUp).remoteNavigationDown(onDown),
+            onClick = {
+                AnimeFillerSettingsRepository.setEnabled(!isFillerEnabled)
+            },
+        )
+        AnimeFillerChip(
+            label = stringResource(Res.string.anime_hide_fillers),
+            isActive = hideFillerEpisodes && isFillerEnabled,
+            textSize = pillTextSize,
+            scale = pillScale,
+            modifier = Modifier.remoteNavigationUp(onUp).remoteNavigationDown(onDown),
+            onClick = {
+                val nextHide = !hideFillerEpisodes
+                if (nextHide && !isFillerEnabled) {
+                    AnimeFillerSettingsRepository.setEnabled(true)
+                }
+                AnimeFillerSettingsRepository.setHideFillers(nextHide)
+            },
+        )
+    }
+}
+
+@Composable
+internal fun AnimeFillerChip(
+    label: String,
+    isActive: Boolean,
+    textSize: TextUnit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    scale: Float = 1f,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val highlighted = focused && isRemoteKeyboardNavigationActive
+    val focusColor = MaterialTheme.nuvio.colors.accent
+    val activeColor = Color(0xFFF59E0B)
+    val backgroundColor = if (highlighted) {
+        focusColor.copy(alpha = 0.3f)
+    } else if (isActive) {
+        activeColor.copy(alpha = 0.16f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+    }
+    val borderColor = if (highlighted) {
+        focusColor
+    } else if (isActive) {
+        activeColor.copy(alpha = 0.6f)
+    } else {
+        Color.White.copy(alpha = 0.15f)
+    }
+    val textColor = if (isActive) {
+        MaterialTheme.colorScheme.onBackground
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    }
+    val dotColor = if (isActive) {
+        activeColor
+    } else {
+        Color.White.copy(alpha = 0.3f)
+    }
+
+    Box(
+        modifier = modifier
+            .onFocusChanged { focused = it.isFocused }
+            .clip(RoundedCornerShape(8.dp * scale))
+            .background(backgroundColor)
+            .border(
+                width = 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(8.dp * scale),
+            )
+            .remoteNavigationTarget(shape = RoundedCornerShape(8.dp * scale)).clickable(onClick = onClick)
+            .padding(horizontal = 10.dp * scale, vertical = 6.dp * scale),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp * scale),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp * scale)
+                    .clip(CircleShape)
+                    .background(dotColor),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = textSize,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                ),
+                color = textColor,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SeasonTextChipScrollRow(
+    seasons: List<Int>,
+    currentSeason: Int,
+    sizing: SeriesContentSizing,
+    horizontalScrollPadding: Dp,
+    scrollPostersLayoutEnabled: Boolean = false,
+    posterGutterSize: PosterGutterSize = PosterGutterSize.Default,
+    showHoverPosterPreview: Boolean = false,
+    seasonPosterForSeason: ((Int) -> String?)? = null,
+    onSelect: (Int) -> Unit,
+    onLongPress: ((Int) -> Unit)?,
+    navigationEntry: RemoteNavigationFocusDestination? = null,
+    onSeasonDown: (suspend () -> Unit)? = null,
+    onSeasonUp: (suspend () -> Unit)? = null,
+    isEnhanced: Boolean = false,
+    seasonListState: LazyListState = rememberLazyListState(),
+    seasonArrows: SoftArrowScroll = rememberSoftArrowScroll(seasonListState),
+) {
+    var previewRowBounds by remember { mutableStateOf(Rect.Zero) }
+    val rowNavigation = rememberSeriesRowNavigation(seasonListState, seasons)
+    BindRemoteNavigationFocusDestination(navigationEntry) {
+        val index = seasons.indexOf(currentSeason).coerceAtLeast(0)
+        val visible = seasonListState.layoutInfo.visibleItemsInfo.any { it.index == index }
+        if (!visible) seasonListState.softScrollToItem((index - if (rowNavigation.controller != null) 1 else 0).coerceAtLeast(0))
+    }
+    BindArrowScrollViewport(seasonArrows, 0.dp)
+    val density = LocalDensity.current
+    val scrollStepPx = remember(density) { with(density) { 80.dp.toPx() } }
+    val bleedPadding = if (horizontalScrollPadding > 0.dp) {
+        horizontalScrollPadding
+    } else {
+        if (isDesktop) 28.dp else 16.dp
+    }
+    val effectiveGutterPadding = if (isDesktop) {
+        ((bleedPadding + SeriesScrollPostersExtraGutter) * posterGutterSize.multiplier).coerceAtLeast(bleedPadding)
+    } else bleedPadding
+    var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
+
+    LaunchedEffect(seasons, currentSeason) {
+        val currentIndex = seasons.indexOf(currentSeason)
+        if (currentIndex >= 0) {
+            val anchorIndex = (currentIndex - if (rowNavigation.controller != null) 1 else 0).coerceAtLeast(0)
+            if (hasPositionedSeasonRow) {
+                seasonListState.softScrollToItem(anchorIndex)
+            } else {
+                seasonListState.scrollToItem(anchorIndex)
+                hasPositionedSeasonRow = true
+            }
+        }
+    }
+
+    val canScrollBack by remember { derivedStateOf { seasonListState.firstVisibleItemIndex > 0 || seasonListState.firstVisibleItemScrollOffset > 0 } }
+    val canScrollFwd by remember {
+        derivedStateOf {
+            val layoutInfo = seasonListState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            if (total == 0) false
+            else {
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
+                lastVisible != null && (lastVisible.index < total - 1 || lastVisible.offset + lastVisible.size > layoutInfo.viewportEndOffset)
+            }
+        }
+    }
+    val hasOverflowingSeasons by remember { derivedStateOf { canScrollBack || canScrollFwd } }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isRowHovered by interactionSource.collectIsRemoteHoveredAsState()
+    val showNavButtons = !isDesktop || isRowHovered
+    val rowHazeState = rememberHazeState()
+    val rowGlassSource = if (LocalFrostedGlassEnabled.current) Modifier.hazeSource(rowHazeState) else Modifier
+
+    val containerModifier = if (scrollPostersLayoutEnabled) {
+        Modifier
+            .nuvioHorizontalScrollBleed(bleedPadding)
+            .fillMaxWidth()
+            .nuvioCenterScrollConsumer(effectiveGutterPadding, enabled = hasOverflowingSeasons, state = seasonListState)
+            .hoverable(interactionSource)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .hoverable(interactionSource)
+    }
+
+    val rowModifier = if (scrollPostersLayoutEnabled) {
+        Modifier
+            .padding(horizontal = effectiveGutterPadding)
+            .fillMaxWidth()
+            .nuvioPosterRowGutterClip()
+            .nuvioPosterRowMouseWheelScroll(state = seasonListState, scrollStepPx = scrollStepPx, enabled = hasOverflowingSeasons)
+            .nuvioDesktopDragScroll(seasonListState, enabled = hasOverflowingSeasons)
+            .let { if (isDesktop && !isEnhanced) it.padding(bottom = 4.dp) else it }
+    } else {
+        Modifier
+            .nuvioHorizontalScrollBleed(horizontalScrollPadding)
+            .fillMaxWidth()
+            .nuvioPosterRowMouseWheelScroll(state = seasonListState, scrollStepPx = scrollStepPx, enabled = hasOverflowingSeasons)
+            .nuvioDesktopDragScroll(seasonListState, enabled = hasOverflowingSeasons)
+            .let { if (isDesktop && !isEnhanced) it.padding(bottom = 4.dp) else it }
+    }
+
+    val rowContentPadding = if (scrollPostersLayoutEnabled) {
+        PaddingValues(vertical = if (isEnhanced) 12.dp else 0.dp)
+    } else {
+        PaddingValues(
+            horizontal = horizontalScrollPadding,
+            vertical = if (isEnhanced) 12.dp else 0.dp,
+        )
+    }
+
+    Box(
+        modifier = containerModifier,
+    ) {
+        PosterShelfScrollOwner(rowNavigation.controller) {
+            LazyRow(
+                state = seasonListState,
+                modifier = rowNavigation.modifier
+                    .remoteNavigationUp(onSeasonUp.takeIf { isEnhanced })
+                    .remoteNavigationDown(onSeasonDown.takeIf { isEnhanced })
+                    .then(rowModifier)
+                    .let { if (isEnhanced) it.nuvioPosterRowEdgeFade(seasonListState) else it }
+                    .then(rowGlassSource)
+                    .onGloballyPositioned { previewRowBounds = it.boundsInRoot() },
+                contentPadding = rowContentPadding,
+                horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
+            ) {
+                itemsIndexed(seasons, key = { _, season -> season }) { index, season ->
+                    CompositionLocalProvider(LocalPosterShelfItem provides rowNavigation.controller?.let { PosterShelfItem(it, season, index) }) {
+                        val isSelected = season == currentSeason
+                        val onSecondaryClick = onLongPress?.let { handler -> { handler(season) } }
+                        val chipInteractionSource = remember { MutableInteractionSource() }
+                        val isChipHovered by chipInteractionSource.collectIsRemoteHoveredAsState()
+                        val posterUrl = seasonPosterForSeason?.invoke(season)
+
+                        Box(
+                            modifier = Modifier.wrapContentSize().seasonPosterPreviewAnchor(
+                                posterUrl = posterUrl.takeIf { showHoverPosterPreview },
+                                hovered = isChipHovered,
+                                rowBounds = previewRowBounds,
+                                rowState = seasonListState,
+                            ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .then(if (isSelected) {
+                                        Modifier.navigationGlass(
+                                            shape = RoundedCornerShape(sizing.seasonChipRadius),
+                                            backgroundOnly = true,
+                                        )
+                                    } else if (!isEnhanced) {
+                                        Modifier.clip(RoundedCornerShape(sizing.seasonChipRadius))
+                                    } else Modifier)
+                                    .hoverable(chipInteractionSource)
+                                    .then(rowNavigation.itemModifier(index))
+                                    .remoteNavigationFocusDestination(navigationEntry.takeIf { isSelected })
+                                    .remoteNavigationDown(onSeasonDown)
+                                    .remoteNavigationUp(onSeasonUp)
+                                    .posterCardClickable(
+                                        onClick = { onSelect(season) },
+                                        onLongClick = onSecondaryClick,
+                                        zoomCornerRadius = sizing.seasonChipRadius,
+                                        hoverScaleEnabled = false,
+                                    )
+                                    .padding(
+                                        horizontal = sizing.seasonChipHorizontalPadding,
+                                        vertical = sizing.seasonChipVerticalPadding,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = season.label(),
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontSize = sizing.seasonChipTextSize,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                        shadow = if (isEnhanced) {
+                                            androidx.compose.ui.graphics.Shadow(
+                                                color = Color.Black.copy(alpha = 0.65f),
+                                                offset = androidx.compose.ui.geometry.Offset(0f, 2f),
+                                                blurRadius = 8f,
+                                            )
+                                        } else null,
+                                    ),
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.onBackground
+                                    } else if (isEnhanced) {
+                                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!isEnhanced) {
+            AnimatedVisibility(
+                visible = showNavButtons && canScrollBack,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
+                RowScrollNavButton(
+                    direction = ScrollNavDirection.Left,
+                    hazeState = rowHazeState,
+                    horizontalScrollPadding = if (scrollPostersLayoutEnabled) effectiveGutterPadding else horizontalScrollPadding,
+                    onClick = {
+                        seasonArrows.scrollPage(forward = false)
+                    },
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showNavButtons && canScrollFwd,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+                modifier = Modifier.align(Alignment.CenterEnd),
+            ) {
+                RowScrollNavButton(
+                    direction = ScrollNavDirection.Right,
+                    hazeState = rowHazeState,
+                    horizontalScrollPadding = if (scrollPostersLayoutEnabled) effectiveGutterPadding else horizontalScrollPadding,
+                    onClick = {
+                        seasonArrows.scrollPage(forward = true)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeasonPosterScrollRow(
+    seasons: List<Int>,
+    navigationEntry: RemoteNavigationFocusDestination? = null,
+    onSeasonDown: (suspend () -> Unit)? = null,
+    onSeasonUp: (suspend () -> Unit)? = null,
+    groupedEpisodes: Map<Int, List<MetaVideo>>,
+    meta: MetaDetails,
+    currentSeason: Int,
+    sizing: SeriesContentSizing,
+    horizontalScrollPadding: Dp,
+    scrollPostersLayoutEnabled: Boolean = false,
+    posterGutterSize: PosterGutterSize = PosterGutterSize.Default,
+    onSelect: (Int) -> Unit,
+    onLongPress: ((Int) -> Unit)?,
+) {
+    val seasonListState = rememberLazyListState()
+    val rowNavigation = rememberSeriesRowNavigation(seasonListState, seasons)
+    BindRemoteNavigationFocusDestination(navigationEntry) {
+        val index = seasons.indexOf(currentSeason).coerceAtLeast(0)
+        if (seasonListState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+            seasonListState.softScrollToItem((index - if (rowNavigation.controller != null) 1 else 0).coerceAtLeast(0))
+        }
+    }
+    val seasonArrows = rememberSoftArrowScroll(seasonListState)
+    BindArrowScrollViewport(seasonArrows, 0.dp)
+    val density = LocalDensity.current
+    val scrollStepPx = remember(density) { with(density) { 80.dp.toPx() } }
+    val bleedPadding = if (horizontalScrollPadding > 0.dp) {
+        horizontalScrollPadding
+    } else {
+        if (isDesktop) 28.dp else 16.dp
+    }
+    val effectiveGutterPadding = if (isDesktop) {
+        ((bleedPadding + SeriesScrollPostersExtraGutter) * posterGutterSize.multiplier).coerceAtLeast(bleedPadding)
+    } else bleedPadding
+    var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
+
+    LaunchedEffect(seasons, currentSeason) {
+        val currentIndex = seasons.indexOf(currentSeason)
+        if (currentIndex >= 0) {
+            val anchorIndex = (currentIndex - if (rowNavigation.controller != null) 1 else 0).coerceAtLeast(0)
+            if (hasPositionedSeasonRow) {
+                seasonListState.softScrollToItem(anchorIndex)
+            } else {
+                seasonListState.scrollToItem(anchorIndex)
+                hasPositionedSeasonRow = true
+            }
+        }
+    }
+
+    val canScrollBack by remember { derivedStateOf { seasonListState.firstVisibleItemIndex > 0 || seasonListState.firstVisibleItemScrollOffset > 0 } }
+    val canScrollFwd by remember {
+        derivedStateOf {
+            val layoutInfo = seasonListState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            if (total == 0) false
+            else {
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
+                lastVisible != null && (lastVisible.index < total - 1 || lastVisible.offset + lastVisible.size > layoutInfo.viewportEndOffset)
+            }
+        }
+    }
+    val hasOverflowingSeasons by remember { derivedStateOf { canScrollBack || canScrollFwd } }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isRowHovered by interactionSource.collectIsRemoteHoveredAsState()
+    val showNavButtons = !isDesktop || isRowHovered
+    val rowHazeState = rememberHazeState()
+    val rowGlassSource = if (LocalFrostedGlassEnabled.current) Modifier.hazeSource(rowHazeState) else Modifier
+
+    val containerModifier = if (scrollPostersLayoutEnabled) {
+        Modifier
+            .nuvioHorizontalScrollBleed(bleedPadding)
+            .fillMaxWidth()
+            .nuvioCenterScrollConsumer(effectiveGutterPadding, enabled = hasOverflowingSeasons, state = seasonListState)
+            .hoverable(interactionSource)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .hoverable(interactionSource)
+    }
+
+    val rowModifier = if (scrollPostersLayoutEnabled) {
+        Modifier
+            .padding(horizontal = effectiveGutterPadding)
+            .fillMaxWidth()
+            .nuvioPosterRowGutterClip()
+            .nuvioPosterRowMouseWheelScroll(state = seasonListState, scrollStepPx = scrollStepPx, enabled = hasOverflowingSeasons)
+            .nuvioDesktopDragScroll(seasonListState, enabled = hasOverflowingSeasons)
+            .let { if (isDesktop) it.padding(bottom = 4.dp) else it }
+    } else {
+        Modifier
+            .nuvioHorizontalScrollBleed(horizontalScrollPadding)
+            .fillMaxWidth()
+            .nuvioPosterRowMouseWheelScroll(state = seasonListState, scrollStepPx = scrollStepPx, enabled = hasOverflowingSeasons)
+            .nuvioDesktopDragScroll(seasonListState, enabled = hasOverflowingSeasons)
+            .let { if (isDesktop) it.padding(bottom = 4.dp) else it }
+    }
+
+    val rowContentPadding = if (scrollPostersLayoutEnabled) {
+        PaddingValues(0.dp)
+    } else {
+        PaddingValues(horizontal = horizontalScrollPadding)
+    }
+
+    Box(
+        modifier = containerModifier,
+    ) {
+        PosterShelfScrollOwner(rowNavigation.controller) {
+            LazyRow(
+                state = seasonListState,
+                modifier = rowNavigation.modifier.then(rowModifier)
+                    .nuvioPosterRowEdgeFade(seasonListState)
+                    .then(rowGlassSource),
+                contentPadding = rowContentPadding,
+                horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
+            ) {
+                itemsIndexed(seasons, key = { _, season -> season }) { index, season ->
+                    CompositionLocalProvider(LocalPosterShelfItem provides rowNavigation.controller?.let { PosterShelfItem(it, season, index) }) {
+                        SeasonPosterButton(
+                            modifier = rowNavigation.itemModifier(index)
+                                .remoteNavigationFocusDestination(navigationEntry.takeIf { season == currentSeason })
+                                .remoteNavigationDown(onSeasonDown).remoteNavigationUp(onSeasonUp),
+                            label = season.label(),
+                            imageUrl = resolveSeasonPoster(
+                                season = season,
+                                groupedEpisodes = groupedEpisodes,
+                                meta = meta,
+                            )
+                                ?: meta.poster
+                                ?: meta.background,
+                            isSelected = season == currentSeason,
+                            sizing = sizing,
+                            onClick = { onSelect(season) },
+                            onLongClick = onLongPress?.let { handler -> { handler(season) } },
+                        )
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showNavButtons && canScrollBack,
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.CenterStart),
+        ) {
+            RowScrollNavButton(
+                direction = ScrollNavDirection.Left,
+                hazeState = rowHazeState,
+                horizontalScrollPadding = if (scrollPostersLayoutEnabled) effectiveGutterPadding else horizontalScrollPadding,
+                onClick = {
+                    seasonArrows.scrollPage(forward = false)
+                },
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showNavButtons && canScrollFwd,
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            RowScrollNavButton(
+                direction = ScrollNavDirection.Right,
+                hazeState = rowHazeState,
+                horizontalScrollPadding = if (scrollPostersLayoutEnabled) effectiveGutterPadding else horizontalScrollPadding,
+                onClick = {
+                    seasonArrows.scrollPage(forward = true)
+                },
+            )
+        }
+    }
+}
+
+private enum class ScrollNavDirection { Left, Right }
+
+@Composable
+private fun RowScrollNavButton(
+    direction: ScrollNavDirection,
+    horizontalScrollPadding: Dp,
+    hazeState: HazeState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isLeft = direction == ScrollNavDirection.Left
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsRemoteHoveredAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isHovered) 1.12f else 1.0f,
+        animationSpec = tween(180),
+    )
+
+    Box(
+        modifier = modifier
+            .padding(
+                start = if (isLeft) horizontalScrollPadding.coerceAtLeast(8.dp) else 0.dp,
+                end = if (!isLeft) horizontalScrollPadding.coerceAtLeast(8.dp) else 0.dp,
+            )
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .navigationGlass(shape = CircleShape, hazeState = hazeState)
+            .navigationGlassFeedback(interactionSource, CircleShape)
+            .hoverable(interactionSource)
+            .remoteNavigationTarget(shape = CircleShape).clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .size(42.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (isLeft) {
+                Icons.AutoMirrored.Rounded.KeyboardArrowLeft
+            } else {
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight
+            },
+            contentDescription = null,
+            tint = if (isHovered) MaterialTheme.colorScheme.primary else Color.White,
+            modifier = Modifier
+                .size(26.dp),
+        )
+    }
+}
+
+@Composable
+private fun HeaderScrollArrowButton(
+    direction: ScrollNavDirection,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isLeft = direction == ScrollNavDirection.Left
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsRemoteHoveredAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isHovered && enabled) 1.08f else 1.0f,
+        animationSpec = tween(180),
+    )
+
+    CompositionLocalProvider(androidx.compose.material3.LocalMinimumInteractiveComponentSize provides 0.dp) {
+        IconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier
+                .size(NuvioTokens.Space.s40)
+                .focusProperties { canFocus = false }
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = if (enabled) 1f else 0.38f
+                }
+                .navigationGlass(shape = CircleShape, backgroundOnly = true)
+                .navigationGlassFeedback(interactionSource, CircleShape)
+                .hoverable(interactionSource),
+        ) {
+            Icon(
+                imageVector = if (isLeft) {
+                    Icons.AutoMirrored.Rounded.KeyboardArrowLeft
+                } else {
+                    Icons.AutoMirrored.Rounded.KeyboardArrowRight
+                },
+                contentDescription = null,
+                tint = MaterialTheme.nuvio.colors.textMuted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViewListButton(
+    focusDestination: RemoteNavigationFocusDestination?,
+    onUp: (suspend () -> Unit)?,
+    onDown: (suspend () -> Unit)?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val tokens = MaterialTheme.nuvio
+    val pillShape = RoundedCornerShape(NuvioTokens.Radius.full)
+
+    Box(
+        modifier = modifier
+            .height(NuvioTokens.Space.s40)
+            .widthIn(min = NuvioTokens.Space.s40)
+            .navigationGlass(shape = pillShape, backgroundOnly = true)
+            .navigationGlassFeedback(interactionSource, pillShape)
+            .hoverable(interactionSource)
+            .remoteNavigationFocusDestination(focusDestination)
+            .remoteNavigationUp(onUp)
+            .remoteNavigationDown(onDown)
+            .onPreviewKeyEvent { event ->
+                if (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) true else false
+            }
+            .remoteNavigationTarget(shape = pillShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = NuvioTokens.Space.s10),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = stringResource(Res.string.details_episodes_view_list),
+            style = MaterialTheme.typography.labelLarge,
+            color = tokens.colors.textMuted,
+            maxLines = 1,
+        )
+    }
+}
+
+internal fun resolveSeasonPoster(
+    season: Int,
+    groupedEpisodes: Map<Int, List<MetaVideo>>,
+    meta: MetaDetails,
+): String? = groupedEpisodes[season]
+    .orEmpty()
+    .firstNotNullOfOrNull { episode -> episode.seasonPoster?.takeIf(String::isNotBlank) }
+    ?: meta.seasonPosters[season]?.takeIf(String::isNotBlank)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SeasonPosterButton(
+    modifier: Modifier = Modifier,
+    label: String,
+    imageUrl: String?,
+    isSelected: Boolean,
+    sizing: SeriesContentSizing,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+) {
+    Column(
+        modifier = modifier
+            .width(sizing.seasonPosterWidth)
+            .posterCardClickable(onClick = onClick, onLongClick = onLongClick),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(sizing.seasonPosterHeight)
+                .clip(RoundedCornerShape(sizing.seasonPosterRadius))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .border(
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        Color.White.copy(alpha = 0.1f)
+                    },
+                    shape = RoundedCornerShape(sizing.seasonPosterRadius),
+                ),
+        ) {
+            if (imageUrl != null) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = label,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = sizing.seasonChipTextSize,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+            ),
+            color = if (isSelected) {
+                MaterialTheme.colorScheme.onBackground
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EpisodeHorizontalRow(
+    episodes: List<MetaVideo>,
+    fixedPath: Boolean = false,
+    rememberedEpisode: MetaVideo? = null,
+    onEpisodeFocused: ((MetaVideo) -> Unit)? = null,
+    firstEpisodeFocus: RemoteNavigationFocusDestination? = null,
+    onEpisodeUp: (suspend () -> Unit)? = null,
+    onEpisodeDown: (suspend () -> Unit)? = null,
+    maxWidthDp: Float,
+    horizontalScrollPadding: Dp,
+    parentMetaId: String,
+    metaType: String,
+    watchedKeys: Set<String>,
+    fallbackImage: String?,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+    episodeRatings: Map<Pair<Int, Int>, Double>,
+    episodeRatingsVisibility: EpisodeRatingsVisibility,
+    blurUnwatchedEpisodes: Boolean,
+    preferredEpisodeNumber: Int? = null,
+    scrollPostersLayoutEnabled: Boolean = false,
+    posterGutterSize: PosterGutterSize = PosterGutterSize.Default,
+    isEnhanced: Boolean = false,
+    listState: LazyListState = rememberLazyListState(),
+    episodeArrows: SoftArrowScroll = rememberSoftArrowScroll(listState),
+    onEpisodeClick: ((MetaVideo) -> Unit)?,
+    onEpisodeLongPress: ((MetaVideo) -> Unit)?,
+) {
+    val rowMetrics = rememberEpisodeHorizontalCardMetrics(
+        maxWidthDp = maxWidthDp,
+        reduceSize = scrollPostersLayoutEnabled,
+        isEnhanced = isEnhanced,
+    )
+    val episodeKeys = remember(episodes) {
+        episodes.mapIndexed { index, episode -> "${episode.season}:${episode.episode}:${episode.id}#$index" }
+    }
+    val allowSidebar = LocalDesktopSidebarActive.current
+    val shelfController = rememberPosterShelfController(
+        listState, episodeKeys, allowSidebarEntry = allowSidebar, precedingPosterVisible = true,
+    )
+    var entryIndex by remember { mutableStateOf(0) }
+    var hasPositioned by rememberSaveable(parentMetaId, episodes.firstOrNull()?.season) { mutableStateOf(false) }
+    BindRemoteNavigationFocusDestination(firstEpisodeFocus) {
+        hasPositioned = true
+        entryIndex = if (fixedPath) {
+            episodes.indexOfFirst {
+                rememberedEpisode != null && it.id == rememberedEpisode.id &&
+                    it.season == rememberedEpisode.season && it.episode == rememberedEpisode.episode
+            }.takeIf { it >= 0 }
+                ?: episodes.indexOfFirst { preferredEpisodeNumber != null && it.episode == preferredEpisodeNumber }.takeIf { it >= 0 }
+                ?: 0
+        } else com.nuvio.app.core.ui.firstVisibleNavigationIndex(listState.layoutInfo) ?: listState.firstVisibleItemIndex
+        if (fixedPath) listState.revealShelfItem(entryIndex)
+        androidx.compose.runtime.withFrameNanos { }
+    }
+    val density = LocalDensity.current
+    val scrollStepPx = remember(density) { with(density) { 80.dp.toPx() } }
+    val bleedPadding = if (horizontalScrollPadding > 0.dp) {
+        horizontalScrollPadding
+    } else {
+        desktopPageHorizontalPaddingForWidth(maxWidthDp)
+    }
+    val effectiveGutterPadding = if (isDesktop) {
+        ((bleedPadding + SeriesScrollPostersExtraGutter) * posterGutterSize.multiplier).coerceAtLeast(bleedPadding)
+    } else bleedPadding
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }.collect { if (it) hasPositioned = true }
+    }
+
+    LaunchedEffect(episodes, preferredEpisodeNumber) {
+        if (hasPositioned) return@LaunchedEffect
+        val targetIndex = if (preferredEpisodeNumber != null) {
+            episodes.indexOfFirst { it.episode == preferredEpisodeNumber }
+        } else {
+            -1
+        }
+        if (targetIndex >= 0) {
+            hasPositioned = true
+            listState.scrollToItem(targetIndex)
+        }
+    }
+
+    val canScrollBack by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+    val canScrollFwd by remember { derivedStateOf { listState.canScrollForward } }
+    val hasOverflowingEpisodes by remember { derivedStateOf { canScrollBack || canScrollFwd } }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isRowHovered by interactionSource.collectIsRemoteHoveredAsState()
+    val showNavButtons = !isDesktop || isRowHovered
+    val rowHazeState = rememberHazeState()
+    val glowOutset = if (isDesktop && rememberPosterCardStyleUiState().glowEnabled) PosterGlowOutset else 0.dp
+    val rowHoverInset = maxOf(if (isDesktop) DesktopPosterRowHoverInset else 0.dp, glowOutset)
+    val horizontalOverflow = if (scrollPostersLayoutEnabled) rowHoverInset else glowOutset
+    BindArrowScrollViewport(episodeArrows, horizontalOverflow)
+    val hoverViewport = remember { PosterRowHoverViewport() }
+    hoverViewport.inset = horizontalOverflow
+    val rowGlassSource = if (LocalFrostedGlassEnabled.current) Modifier.hazeSource(rowHazeState) else Modifier
+
+    // Match the shelf viewport expansion with internal padding to preserve the
+    // card positions and gutter width while allowing hover and glow overdraw.
+    val hoverOverdraw = Modifier
+        .nuvioShelfHoverOverdraw(glowOutset, horizontalOverflow)
+        .onGloballyPositioned {
+            hoverViewport.left = it.positionInRoot().x
+            hoverViewport.width = it.size.width
+        }
+
+    val containerModifier = if (scrollPostersLayoutEnabled) {
+        Modifier
+            .nuvioHorizontalScrollBleed(bleedPadding)
+            .fillMaxWidth()
+            .nuvioCenterScrollConsumer(effectiveGutterPadding, enabled = hasOverflowingEpisodes, state = listState)
+            .hoverable(interactionSource)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .hoverable(interactionSource)
+    }
+
+    val rowModifier = if (scrollPostersLayoutEnabled) {
+        Modifier
+            .padding(horizontal = effectiveGutterPadding)
+            .fillMaxWidth()
+            .nuvioPosterRowMouseWheelScroll(state = listState, scrollStepPx = scrollStepPx, enabled = hasOverflowingEpisodes)
+            .nuvioDesktopDragScroll(listState, enabled = hasOverflowingEpisodes)
+            .then(hoverOverdraw)
+            .nuvioPosterRowGutterClip(horizontalOverflow = maxOf(10.dp, glowOutset))
+    } else {
+        Modifier
+            .nuvioHorizontalScrollBleed(horizontalScrollPadding)
+            .fillMaxWidth()
+            .nuvioPosterRowMouseWheelScroll(state = listState, scrollStepPx = scrollStepPx, enabled = hasOverflowingEpisodes)
+            .nuvioDesktopDragScroll(listState, enabled = hasOverflowingEpisodes)
+            .then(hoverOverdraw)
+    }
+
+    val rowContentPadding = if (scrollPostersLayoutEnabled) {
+        PaddingValues(
+            horizontal = rowMetrics.rowHorizontalPadding + horizontalOverflow,
+            vertical = rowMetrics.rowVerticalPadding + glowOutset,
+        )
+    } else {
+        PaddingValues(
+            horizontal = horizontalScrollPadding + rowMetrics.rowHorizontalPadding + horizontalOverflow,
+            vertical = rowMetrics.rowVerticalPadding + glowOutset,
+        )
+    }
+
+    Box(
+        modifier = containerModifier,
+    ) {
+        PosterShelfScrollOwner(shelfController, explicitRevealOnly = fixedPath && shelfController != null) {
+            LazyRow(
+                state = listState,
+                modifier = Modifier.onFocusChanged { if (it.hasFocus) hasPositioned = true }
+                    .remoteNavigationUp(onEpisodeUp.takeIf { fixedPath })
+                    .remoteNavigationDown(onEpisodeDown.takeIf { fixedPath })
+                    .remoteNavigationGroup(rememberRow = true).then(rowModifier)
+                    .nuvioPosterRowEdgeFade(listState, horizontalInset = horizontalOverflow)
+                    .then(rowGlassSource),
+                contentPadding = rowContentPadding,
+                horizontalArrangement = Arrangement.spacedBy(rowMetrics.itemSpacing),
+            ) {
+                itemsIndexed(
+                    items = episodes,
+                    key = { index, _ -> episodeKeys[index] },
+                ) { index, episode ->
+                    val episodeVideoId = buildPlaybackVideoId(
+                        parentMetaId = parentMetaId,
+                        seasonNumber = episode.season,
+                        episodeNumber = episode.episode,
+                        fallbackVideoId = episode.id,
+                    )
+                    PosterRowItem(
+                        viewport = hoverViewport.takeIf { scrollPostersLayoutEnabled || glowOutset > 0.dp },
+                        modifier = Modifier,
+                    ) {
+                        CompositionLocalProvider(LocalPosterShelfItem provides shelfController?.let { PosterShelfItem(it, episodeKeys[index], index) }) {
+                            EpisodeHorizontalCard(
+                                modifier = Modifier.remoteNavigationFocusDestination(firstEpisodeFocus.takeIf { index == entryIndex })
+                                    .onFocusChanged { if (it.isFocused) onEpisodeFocused?.invoke(episode) }
+                                    .remoteNavigationUp(onEpisodeUp).remoteNavigationDown(onEpisodeDown),
+                                video = episode,
+                                fallbackImage = fallbackImage,
+                                progressEntry = progressByVideoId[episodeVideoId],
+                                imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] } ?: episode.rating,
+                                isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+                                    WatchingState.isEpisodeWatched(
+                                        watchedKeys = watchedKeys,
+                                        metaType = metaType,
+                                        metaId = parentMetaId,
+                                        episode = episode,
+                                    ),
+                                episodeRatingsVisibility = episodeRatingsVisibility,
+                                blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                                metrics = rowMetrics,
+                                isEnhanced = isEnhanced,
+                                onClick = { onEpisodeClick?.invoke(episode) },
+                                onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!isEnhanced) {
+            AnimatedVisibility(
+                visible = showNavButtons && canScrollBack,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
+                RowScrollNavButton(
+                    direction = ScrollNavDirection.Left,
+                    hazeState = rowHazeState,
+                    horizontalScrollPadding = if (scrollPostersLayoutEnabled) effectiveGutterPadding else horizontalScrollPadding,
+                    onClick = {
+                        episodeArrows.scrollPage(forward = false)
+                    },
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showNavButtons && canScrollFwd,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+                modifier = Modifier.align(Alignment.CenterEnd),
+            ) {
+                RowScrollNavButton(
+                    direction = ScrollNavDirection.Right,
+                    hazeState = rowHazeState,
+                    horizontalScrollPadding = if (scrollPostersLayoutEnabled) effectiveGutterPadding else horizontalScrollPadding,
+                    onClick = {
+                        episodeArrows.scrollPage(forward = true)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EpisodeHorizontalCard(
+    video: MetaVideo,
+    fallbackImage: String?,
+    progressEntry: WatchProgressEntry?,
+    imdbRating: Double?,
+    isWatched: Boolean,
+    episodeRatingsVisibility: EpisodeRatingsVisibility,
+    blurUnwatchedEpisodes: Boolean,
+    metrics: EpisodeHorizontalCardMetrics,
+    isEnhanced: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val cardShape = RoundedCornerShape(metrics.cornerRadius)
+    val ratingLabel = remember(imdbRating, episodeRatingsVisibility, isWatched) {
+        imdbRating?.takeIf { it > 0.0 && episodeRatingsVisibility.showRating(isWatched) }
+            ?.let(::formatEpisodeRating)
+    }
+    val formattedDate = remember(video.released) { video.released?.let { formatReleaseDateForDisplay(it) } }
+    val runtimeLabel = remember(video.runtime) { video.runtime?.takeIf { it > 0 }?.let(::formatEpisodeRuntime) }
+    val imageUrl = video.thumbnail ?: fallbackImage
+    val glow = rememberArtworkGlowState(imageUrl)
+    val visibleProgressEntry = progressEntry?.takeIf { it.durationMs > 0L && !it.isCompleted }
+    val progressBarHeight = 4.dp
+    val progressBarContentSpacing = if (isEnhanced) 4.dp else 6.dp
+    val progressBarBottomSpacing = 8.dp
+    val contentBottomPadding = if (visibleProgressEntry != null) {
+        progressBarContentSpacing + progressBarHeight + progressBarBottomSpacing
+    } else {
+        if (isEnhanced) (metrics.contentBottomPadding - 4.dp).coerceAtLeast(8.dp)
+        else metrics.contentBottomPadding
+    }
+    val density = LocalDensity.current
+    val textShadow = remember(isEnhanced, density) {
+        if (isEnhanced) with(density) {
+            Shadow(
+                color = Color.Black.copy(alpha = 0.85f),
+                offset = Offset(0f, 1.dp.toPx()),
+                blurRadius = 3.dp.toPx(),
+            )
+        } else null
+    }
+    Box(
+        modifier = modifier
+            .width(metrics.cardWidth)
+            .height(metrics.cardHeight)
+            .posterGlow(glow, cardShape)
+            .clip(cardShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .nuvioCardDepth(
+                shape = cardShape,
+                surface = NuvioCardDepthSurface.EpisodeCards,
+                fallbackBorderAlpha = 0.12f,
+            )
+            .posterCardClickable(
+                onClick = onClick,
+                onLongClick = onLongPress,
+                zoomImageUrl = imageUrl,
+                zoomCornerRadius = metrics.cornerRadius,
+            ),
+    ) {
+        val shouldBlurArtwork = blurUnwatchedEpisodes && !isWatched
+        if (imageUrl != null) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = video.title,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (shouldBlurArtwork) Modifier.blur(18.dp) else Modifier),
+                contentScale = ContentScale.Crop,
+                desktopAnimation = rememberAnimatedArtworkAnimation(),
+                onSuccess = { result -> glow?.painter = result.painter },
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.42f to Color.Transparent,
+                        0.56f to Color.Black.copy(alpha = 0.20f),
+                        0.70f to Color.Black.copy(alpha = 0.45f),
+                        0.84f to Color.Black.copy(alpha = 0.68f),
+                        1f to Color.Black.copy(alpha = 0.92f),
+                    ),
+                ),
+        )
+
+        val isFillerEnabled by remember {
+            AnimeFillerSettingsRepository.ensureLoaded()
+            AnimeFillerSettingsRepository.enabled
+        }.collectAsStateWithLifecycle()
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(metrics.contentPadding),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
+            EpisodeAvailabilityBadge(video = video)
+            if (isFillerEnabled) {
+                if (video.isFiller) {
+                    FillerBadge()
+                } else if (video.isMixed) {
+                    MixedBadge()
+                }
+            }
+            NuvioAnimatedWatchedBadge(
+                isVisible = isWatched,
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(
+                    start = metrics.contentPadding,
+                    end = metrics.contentPadding,
+                    top = metrics.contentPadding,
+                    bottom = contentBottomPadding,
+                ),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            EpisodeCodeBadge(
+                text = video.episodeBadge(),
+                textSize = metrics.badgeTextSize,
+                radius = metrics.badgeRadius,
+                horizontalPadding = metrics.badgeHorizontalPadding,
+                verticalPadding = metrics.badgeVerticalPadding,
+                backgroundAlpha = 0.42f,
+                textShadow = textShadow,
+            )
+
+            Text(
+                text = localizedEpisodeTitle(video.title, video.episode) ?: video.title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = metrics.titleTextSize,
+                    fontWeight = FontWeight.ExtraBold,
+                    lineHeight = metrics.titleLineHeight,
+                    shadow = textShadow,
+                ),
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            if (!video.overview.isNullOrBlank()) {
+                Text(
+                    text = video.overview,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = metrics.bodyTextSize,
+                        lineHeight = metrics.bodyLineHeight,
+                        shadow = textShadow,
+                    ),
+                    color = Color.White.copy(alpha = 0.86f),
+                    maxLines = metrics.overviewMaxLines,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (runtimeLabel != null || ratingLabel != null || formattedDate != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    runtimeLabel?.let { runtime ->
+                        Text(
+                            text = runtime,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = metrics.metaTextSize, shadow = textShadow),
+                            color = Color.White.copy(alpha = 0.78f),
+                            maxLines = 1,
+                        )
+                    }
+                    ratingLabel?.let { rating ->
+                        ImdbEpisodeRatingBadge(
+                            rating = rating,
+                            logoWidth = metrics.imdbLogoWidth,
+                            logoHeight = metrics.imdbLogoHeight,
+                            textSize = metrics.metaTextSize,
+                            textShadow = textShadow,
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    formattedDate?.let { date ->
+                        Text(
+                            text = date,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = metrics.metaTextSize, shadow = textShadow),
+                            color = Color.White.copy(alpha = 0.78f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.End,
+                        )
+                    }
+                }
+            }
+        }
+
+        visibleProgressEntry?.let { entry ->
+            NuvioProgressBar(
+                progress = entry.progressFraction,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(
+                        start = metrics.contentPadding,
+                        end = metrics.contentPadding,
+                        bottom = progressBarBottomSpacing,
+                    ),
+                height = progressBarHeight,
+                trackColor = Color.White.copy(alpha = 0.22f),
+                fillColor = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+private data class EpisodeHorizontalCardMetrics(
+    val rowHorizontalPadding: Dp,
+    val rowVerticalPadding: Dp,
+    val itemSpacing: Dp,
+    val cardWidth: Dp,
+    val cardHeight: Dp,
+    val cornerRadius: Dp,
+    val contentPadding: Dp,
+    val contentBottomPadding: Dp,
+    val titleTextSize: androidx.compose.ui.unit.TextUnit,
+    val titleLineHeight: androidx.compose.ui.unit.TextUnit,
+    val bodyTextSize: androidx.compose.ui.unit.TextUnit,
+    val bodyLineHeight: androidx.compose.ui.unit.TextUnit,
+    val overviewMaxLines: Int,
+    val metaTextSize: androidx.compose.ui.unit.TextUnit,
+    val badgeTextSize: androidx.compose.ui.unit.TextUnit,
+    val badgeRadius: Dp,
+    val badgeHorizontalPadding: Dp,
+    val badgeVerticalPadding: Dp,
+    val imdbLogoWidth: Dp,
+    val imdbLogoHeight: Dp,
+)
+
+@Composable
+private fun rememberEpisodeHorizontalCardMetrics(
+    maxWidthDp: Float,
+    reduceSize: Boolean = false,
+    isEnhanced: Boolean = false,
+): EpisodeHorizontalCardMetrics {
+    val posterCardStyle = rememberPosterCardStyleUiState()
+    val userCornerRadius = posterCardStyle.cornerRadiusDp.dp
+    val baseScale = if (reduceSize) 0.9f else 1f
+    val scale = if (isEnhanced) baseScale * 0.80f else baseScale
+    val textScale = if (isEnhanced) 0.80f else 1f
+    return remember(maxWidthDp, userCornerRadius, reduceSize, isEnhanced) {
+        when {
+            maxWidthDp >= 1300f -> EpisodeHorizontalCardMetrics(
+                rowHorizontalPadding = 0.dp,
+                rowVerticalPadding = 0.dp,
+                itemSpacing = 18.dp,
+                cardWidth = 420.dp * scale,
+                cardHeight = 256.dp * scale,
+                cornerRadius = userCornerRadius,
+                contentPadding = 16.dp,
+                contentBottomPadding = 18.dp,
+                titleTextSize = 18.sp * textScale,
+                titleLineHeight = 24.sp * textScale,
+                bodyTextSize = 14.sp * textScale,
+                bodyLineHeight = 20.sp * textScale,
+                overviewMaxLines = 3,
+                metaTextSize = 12.sp * textScale,
+                badgeTextSize = 11.sp * textScale,
+                badgeRadius = 8.dp,
+                badgeHorizontalPadding = 10.dp,
+                badgeVerticalPadding = 5.dp,
+                imdbLogoWidth = 28.dp,
+                imdbLogoHeight = 14.dp,
+            )
+
+            maxWidthDp >= 1000f -> EpisodeHorizontalCardMetrics(
+                rowHorizontalPadding = 0.dp,
+                rowVerticalPadding = 0.dp,
+                itemSpacing = 16.dp,
+                cardWidth = 384.dp * scale,
+                cardHeight = 236.dp * scale,
+                cornerRadius = userCornerRadius,
+                contentPadding = 14.dp,
+                contentBottomPadding = 16.dp,
+                titleTextSize = 17.sp * textScale,
+                titleLineHeight = 22.sp * textScale,
+                bodyTextSize = 13.sp * textScale,
+                bodyLineHeight = 18.sp * textScale,
+                overviewMaxLines = 3,
+                metaTextSize = 12.sp * textScale,
+                badgeTextSize = 10.sp * textScale,
+                badgeRadius = 7.dp,
+                badgeHorizontalPadding = 9.dp,
+                badgeVerticalPadding = 4.dp,
+                imdbLogoWidth = 26.dp,
+                imdbLogoHeight = 13.dp,
+            )
+
+            maxWidthDp >= 760f -> EpisodeHorizontalCardMetrics(
+                rowHorizontalPadding = 0.dp,
+                rowVerticalPadding = 0.dp,
+                itemSpacing = 14.dp,
+                cardWidth = 340.dp * scale,
+                cardHeight = 212.dp * scale,
+                cornerRadius = userCornerRadius,
+                contentPadding = 12.dp,
+                contentBottomPadding = 14.dp,
+                titleTextSize = 16.sp * textScale,
+                titleLineHeight = 21.sp * textScale,
+                bodyTextSize = 12.sp * textScale,
+                bodyLineHeight = 17.sp * textScale,
+                overviewMaxLines = 2,
+                metaTextSize = 11.sp * textScale,
+                badgeTextSize = 10.sp * textScale,
+                badgeRadius = 6.dp,
+                badgeHorizontalPadding = 8.dp,
+                badgeVerticalPadding = 4.dp,
+                imdbLogoWidth = 24.dp,
+                imdbLogoHeight = 12.dp,
+            )
+
+            else -> EpisodeHorizontalCardMetrics(
+                rowHorizontalPadding = 0.dp,
+                rowVerticalPadding = 0.dp,
+                itemSpacing = 12.dp,
+                cardWidth = 296.dp * scale,
+                cardHeight = 184.dp * scale,
+                cornerRadius = userCornerRadius,
+                contentPadding = 10.dp,
+                contentBottomPadding = 12.dp,
+                titleTextSize = 14.sp * textScale,
+                titleLineHeight = 19.sp * textScale,
+                bodyTextSize = 11.sp * textScale,
+                bodyLineHeight = 15.sp * textScale,
+                overviewMaxLines = 2,
+                metaTextSize = 10.sp * textScale,
+                badgeTextSize = 9.sp * textScale,
+                badgeRadius = 5.dp,
+                badgeHorizontalPadding = 7.dp,
+                badgeVerticalPadding = 3.dp,
+                imdbLogoWidth = 22.dp,
+                imdbLogoHeight = 11.dp,
+            )
+        }
+    }
+}
+
+private fun formatEpisodeRuntime(runtimeMinutes: Int): String {
+    return formatRuntimeFromMinutes(runtimeMinutes)
+}
+
+@Composable
+private fun EpisodeCodeBadge(
+    text: String,
+    textSize: androidx.compose.ui.unit.TextUnit,
+    radius: Dp,
+    horizontalPadding: Dp,
+    verticalPadding: Dp,
+    backgroundAlpha: Float,
+    modifier: Modifier = Modifier,
+    textShadow: Shadow? = null,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(radius))
+            .background(Color.Black.copy(alpha = backgroundAlpha))
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = textSize,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp,
+                shadow = textShadow,
+            ),
+            color = Color.White.copy(alpha = 0.9f),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun ImdbEpisodeRatingBadge(
+    rating: String,
+    logoWidth: Dp,
+    logoHeight: Dp,
+    textSize: androidx.compose.ui.unit.TextUnit,
+    textShadow: Shadow? = null,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (AppFeaturePolicy.imdbRatingLogoEnabled) {
+            Image(
+                painter = rememberImdbLogoPainter(),
+                contentDescription = stringResource(Res.string.source_imdb),
+                modifier = Modifier
+                    .width(logoWidth)
+                    .height(logoHeight),
+                contentScale = ContentScale.Fit,
+            )
+        } else {
+            Text(
+                text = stringResource(Res.string.source_imdb),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = textSize,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp,
+                    shadow = textShadow,
+                ),
+                color = Color.White.copy(alpha = 0.78f),
+                maxLines = 1,
+            )
+        }
+        Text(
+            text = rating,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = textSize,
+                fontWeight = FontWeight.SemiBold,
+                shadow = textShadow,
+            ),
+            color = Color(0xFFF5C518),
+            maxLines = 1,
+        )
+    }
+}
+
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EpisodeListCard(
+    video: MetaVideo,
+    fallbackImage: String?,
+    progressEntry: WatchProgressEntry?,
+    imdbRating: Double?,
+    isWatched: Boolean,
+    episodeRatingsVisibility: EpisodeRatingsVisibility,
+    blurUnwatchedEpisodes: Boolean,
+    sizing: SeriesContentSizing,
+    modifier: Modifier = Modifier,
+    popupPresentation: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
+) {
+    val cornerRadius = rememberPosterCardStyleUiState().cornerRadiusDp.dp
+    val cardShape = RoundedCornerShape(cornerRadius)
+    val secondaryContentColor = frostedGlassSecondaryContentColor(MaterialTheme.colorScheme.onSurfaceVariant)
+    val ratingLabel = remember(imdbRating, episodeRatingsVisibility, isWatched) {
+        imdbRating?.takeIf { it > 0.0 && episodeRatingsVisibility.showRating(isWatched) }
+            ?.let(::formatEpisodeRating)
+    }
+    val formattedDate = remember(video.released) { video.released?.let { formatReleaseDateForDisplay(it) } }
+    val isFillerEnabled by remember {
+        AnimeFillerSettingsRepository.ensureLoaded()
+        AnimeFillerSettingsRepository.enabled
+    }.collectAsStateWithLifecycle()
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (popupPresentation) Modifier else Modifier.height(sizing.cardHeight))
+            .then(
+                if (LocalSurfaceStyle.current == SurfaceStyle.FrostedGlass && LocalFrostedGlassEnabled.current) {
+                    Modifier
+                        .clip(cardShape)
+                        .background(FrostedGlassTokens.InsetColor)
+                        .frostedGlassBorder(cardShape, inset = true)
+                } else {
+                    Modifier.navigationGlass(shape = cardShape, backgroundOnly = true)
+                },
+            )
+            .posterCardClickable(
+                onClick = onClick,
+                onLongClick = onLongPress,
+                zoomImageUrl = video.thumbnail ?: fallbackImage,
+                zoomCornerRadius = cornerRadius,
+                hoverScaleEnabled = false,
+            ),
+    ) {
+        Row(
+            modifier = if (popupPresentation) Modifier.fillMaxWidth().padding(start = 12.dp).heightIn(min = 168.dp)
+                else Modifier.fillMaxSize(),
+            verticalAlignment = if (popupPresentation) Alignment.CenterVertically else Alignment.Top,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(sizing.imageWidth)
+                    .then(if (popupPresentation) Modifier.aspectRatio(16f / 9f) else Modifier.fillMaxHeight())
+                    .clip(if (popupPresentation) cardShape else RoundedCornerShape(topStart = cornerRadius, bottomStart = cornerRadius)),
+            ) {
+                val imageUrl = video.thumbnail ?: fallbackImage
+                val shouldBlurArtwork = blurUnwatchedEpisodes && !isWatched
+                if (imageUrl != null) {
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = video.title,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (shouldBlurArtwork) Modifier.blur(18.dp) else Modifier),
+                        contentScale = ContentScale.Crop,
+                        desktopAnimation = rememberAnimatedArtworkAnimation(),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface),
+                    )
+                }
+
+                if (!popupPresentation) EpisodeCodeBadge(
+                    text = video.episodeBadge(),
+                    textSize = sizing.badgeTextSize,
+                    radius = sizing.badgeRadius,
+                    horizontalPadding = sizing.badgeHorizontalPadding,
+                    verticalPadding = sizing.badgeVerticalPadding,
+                    backgroundAlpha = 0.85f,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 8.dp, top = 8.dp),
+                )
+
+                if (!popupPresentation) NuvioAnimatedWatchedBadge(
+                    isVisible = isWatched,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
+                )
+
+                EpisodeAvailabilityBadge(
+                    video = video,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = 8.dp,
+                            end = 8.dp,
+                            bottom = if (progressEntry != null && progressEntry.durationMs > 0L && !progressEntry.isCompleted) {
+                                24.dp
+                            } else {
+                                8.dp
+                            },
+                        ),
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .then(if (popupPresentation) Modifier else Modifier.fillMaxHeight())
+                    .weight(1f)
+                    .padding(
+                        start = sizing.contentHorizontalPadding,
+                        end = sizing.contentHorizontalPadding,
+                        top = sizing.contentVerticalPadding,
+                        bottom = sizing.contentVerticalPadding + if (popupPresentation) 14.dp else 0.dp,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(sizing.contentSpacing),
+            ) {
+                if (popupPresentation) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        EpisodeCodeBadge(
+                            text = video.episodeBadge(),
+                            textSize = sizing.badgeTextSize,
+                            radius = sizing.badgeRadius,
+                            horizontalPadding = sizing.badgeHorizontalPadding,
+                            verticalPadding = sizing.badgeVerticalPadding,
+                            backgroundAlpha = 0.42f,
+                        )
+                        NuvioAnimatedWatchedBadge(isVisible = isWatched)
+                    }
+                }
+                Text(
+                    text = localizedEpisodeTitle(video.title, video.episode) ?: video.title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = sizing.titleTextSize,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = sizing.titleLineHeight,
+                        letterSpacing = 0.sp,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = sizing.titleMaxLines,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                val showFiller = video.isFiller && isFillerEnabled
+                val showMixed = video.isMixed && isFillerEnabled
+                val runtimeLabel = if (popupPresentation) video.runtime?.takeIf { it > 0 }?.let(::formatEpisodeRuntime) else null
+                if (formattedDate != null || ratingLabel != null || showFiller || showMixed || runtimeLabel != null) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        runtimeLabel?.let { runtime ->
+                            Text(
+                                text = runtime,
+                                modifier = Modifier.align(Alignment.CenterVertically),
+                                style = MaterialTheme.typography.labelMedium.copy(fontSize = sizing.metaTextSize),
+                                color = secondaryContentColor,
+                            )
+                        }
+                        formattedDate?.let { date ->
+                            Text(
+                                text = date,
+                                modifier = Modifier.align(if (popupPresentation) Alignment.CenterVertically else Alignment.Top),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontSize = sizing.metaTextSize,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                color = frostedGlassSecondaryContentColor(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        ratingLabel?.let { rating ->
+                            Box(Modifier.align(if (popupPresentation) Alignment.CenterVertically else Alignment.Top)) {
+                                ImdbEpisodeRatingBadge(
+                                    rating = rating,
+                                    logoWidth = 24.dp,
+                                    logoHeight = 12.dp,
+                                    textSize = sizing.metaTextSize,
+                                )
+                            }
+                        }
+                        if (showFiller || showMixed) {
+                            Box(Modifier.align(if (popupPresentation) Alignment.CenterVertically else Alignment.Top)) {
+                                if (showFiller) FillerBadge() else MixedBadge()
+                            }
+                        }
+                    }
+                }
+
+                if (!video.overview.isNullOrBlank()) {
+                    Text(
+                        text = video.overview,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = sizing.bodyTextSize,
+                            lineHeight = sizing.bodyLineHeight,
+                        ),
+                        color = secondaryContentColor,
+                        maxLines = sizing.overviewMaxLines,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        progressEntry
+            ?.takeIf { it.durationMs > 0L && !it.isCompleted }
+            ?.let { entry ->
+                NuvioProgressBar(
+                    progress = entry.progressFraction,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .then(if (popupPresentation) Modifier.fillMaxWidth() else Modifier.width(sizing.imageWidth - 24.dp))
+                        .padding(start = if (popupPresentation) 12.dp + sizing.imageWidth + sizing.contentHorizontalPadding else 12.dp,
+                            end = if (popupPresentation) sizing.contentHorizontalPadding else 0.dp, bottom = 10.dp),
+                    height = 5.dp,
+                    trackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.14f),
+                    fillColor = MaterialTheme.colorScheme.primary,
+                )
+            }
+    }
+}
+
+private data class SeriesContentSizing(
+    val seasonHeaderSize: androidx.compose.ui.unit.TextUnit,
+    val seasonToggleTextSize: androidx.compose.ui.unit.TextUnit,
+    val seasonChipGap: Dp,
+    val seasonChipRadius: Dp,
+    val seasonChipHorizontalPadding: Dp,
+    val seasonChipVerticalPadding: Dp,
+    val seasonChipTextSize: androidx.compose.ui.unit.TextUnit,
+    val seasonPosterWidth: Dp,
+    val seasonPosterHeight: Dp,
+    val seasonPosterRadius: Dp,
+    val cardHeight: Dp,
+    val imageWidth: Dp,
+    val cardGap: Dp,
+    val contentHorizontalPadding: Dp,
+    val contentVerticalPadding: Dp,
+    val contentSpacing: Dp,
+    val titleTextSize: androidx.compose.ui.unit.TextUnit,
+    val titleLineHeight: androidx.compose.ui.unit.TextUnit,
+    val titleMaxLines: Int,
+    val bodyTextSize: androidx.compose.ui.unit.TextUnit,
+    val bodyLineHeight: androidx.compose.ui.unit.TextUnit,
+    val overviewMaxLines: Int,
+    val metaTextSize: androidx.compose.ui.unit.TextUnit,
+    val badgeTextSize: androidx.compose.ui.unit.TextUnit,
+    val badgeRadius: Dp,
+    val badgeHorizontalPadding: Dp,
+    val badgeVerticalPadding: Dp,
+)
+
+private fun seriesContentSizing(
+    maxWidthDp: Float,
+    reduceSeasonSize: Boolean = false,
+): SeriesContentSizing {
+    val seasonScale = if (reduceSeasonSize) 0.9f else 1f
+    return when {
+        maxWidthDp >= 1440f -> SeriesContentSizing(
+            seasonHeaderSize = 28.sp,
+            seasonToggleTextSize = 16.sp,
+            seasonChipGap = 20.dp,
+            seasonChipRadius = 16.dp,
+            seasonChipHorizontalPadding = 20.dp * seasonScale,
+            seasonChipVerticalPadding = 16.dp * seasonScale,
+            seasonChipTextSize = 16.sp,
+            seasonPosterWidth = 140.dp * seasonScale,
+            seasonPosterHeight = 210.dp * seasonScale,
+            seasonPosterRadius = 16.dp,
+            cardHeight = 200.dp,
+            imageWidth = 200.dp,
+            cardGap = 20.dp,
+            contentHorizontalPadding = 20.dp,
+            contentVerticalPadding = 18.dp,
+            contentSpacing = 8.dp,
+            titleTextSize = 18.sp,
+            titleLineHeight = 24.sp,
+            titleMaxLines = 3,
+            bodyTextSize = 15.sp,
+            bodyLineHeight = 22.sp,
+            overviewMaxLines = 4,
+            metaTextSize = 13.sp,
+            badgeTextSize = 13.sp,
+            badgeRadius = 6.dp,
+            badgeHorizontalPadding = 8.dp,
+            badgeVerticalPadding = 4.dp,
+        )
+        maxWidthDp >= 1024f -> SeriesContentSizing(
+            seasonHeaderSize = 26.sp,
+            seasonToggleTextSize = 15.sp,
+            seasonChipGap = 18.dp,
+            seasonChipRadius = 14.dp,
+            seasonChipHorizontalPadding = 18.dp * seasonScale,
+            seasonChipVerticalPadding = 14.dp * seasonScale,
+            seasonChipTextSize = 15.sp,
+            seasonPosterWidth = 130.dp * seasonScale,
+            seasonPosterHeight = 195.dp * seasonScale,
+            seasonPosterRadius = 14.dp,
+            cardHeight = 180.dp,
+            imageWidth = 180.dp,
+            cardGap = 18.dp,
+            contentHorizontalPadding = 18.dp,
+            contentVerticalPadding = 16.dp,
+            contentSpacing = 8.dp,
+            titleTextSize = 17.sp,
+            titleLineHeight = 22.sp,
+            titleMaxLines = 3,
+            bodyTextSize = 14.sp,
+            bodyLineHeight = 20.sp,
+            overviewMaxLines = 4,
+            metaTextSize = 12.sp,
+            badgeTextSize = 12.sp,
+            badgeRadius = 5.dp,
+            badgeHorizontalPadding = 7.dp,
+            badgeVerticalPadding = 3.dp,
+        )
+        maxWidthDp >= 768f -> SeriesContentSizing(
+            seasonHeaderSize = 24.sp,
+            seasonToggleTextSize = 14.sp,
+            seasonChipGap = 16.dp,
+            seasonChipRadius = 12.dp,
+            seasonChipHorizontalPadding = 16.dp * seasonScale,
+            seasonChipVerticalPadding = 12.dp * seasonScale,
+            seasonChipTextSize = 17.sp,
+            seasonPosterWidth = 120.dp * seasonScale,
+            seasonPosterHeight = 180.dp * seasonScale,
+            seasonPosterRadius = 12.dp,
+            cardHeight = 160.dp,
+            imageWidth = 160.dp,
+            cardGap = 16.dp,
+            contentHorizontalPadding = 16.dp,
+            contentVerticalPadding = 14.dp,
+            contentSpacing = 6.dp,
+            titleTextSize = 16.sp,
+            titleLineHeight = 20.sp,
+            titleMaxLines = 3,
+            bodyTextSize = 14.sp,
+            bodyLineHeight = 20.sp,
+            overviewMaxLines = 3,
+            metaTextSize = 12.sp,
+            badgeTextSize = 11.sp,
+            badgeRadius = 4.dp,
+            badgeHorizontalPadding = 6.dp,
+            badgeVerticalPadding = 2.dp,
+        )
+        else -> SeriesContentSizing(
+            seasonHeaderSize = 18.sp,
+            seasonToggleTextSize = 12.sp,
+            seasonChipGap = 16.dp,
+            seasonChipRadius = 12.dp,
+            seasonChipHorizontalPadding = 16.dp * seasonScale,
+            seasonChipVerticalPadding = 12.dp * seasonScale,
+            seasonChipTextSize = 15.sp,
+            seasonPosterWidth = 100.dp * seasonScale,
+            seasonPosterHeight = 150.dp * seasonScale,
+            seasonPosterRadius = 8.dp,
+            cardHeight = 120.dp,
+            imageWidth = 120.dp,
+            cardGap = 16.dp,
+            contentHorizontalPadding = 12.dp,
+            contentVerticalPadding = 12.dp,
+            contentSpacing = 4.dp,
+            titleTextSize = 15.sp,
+            titleLineHeight = 18.sp,
+            titleMaxLines = 2,
+            bodyTextSize = 13.sp,
+            bodyLineHeight = 18.sp,
+            overviewMaxLines = 2,
+            metaTextSize = 12.sp,
+            badgeTextSize = 11.sp,
+            badgeRadius = 4.dp,
+            badgeHorizontalPadding = 6.dp,
+            badgeVerticalPadding = 2.dp,
+        )
+    }
+}
+
+private fun Int.label(): String =
+    if (this <= 0) {
+        runBlocking { getString(Res.string.episodes_specials) }
+    } else {
+        runBlocking { getString(Res.string.episodes_season, this@label) }
+    }
+
+private fun MetaVideo.episodeBadge(): String =
+    when {
+        episode != null || season != null ->
+            localizedSeasonEpisodeCode(seasonNumber = season, episodeNumber = episode).orEmpty()
+        else -> runBlocking { getString(Res.string.details_episode_badge_file) }
+    }
+
+private fun MetaVideo.seasonEpisodeKey(): Pair<Int, Int>? {
+    val seasonNumber = season ?: return null
+    val episodeNumber = episode ?: return null
+    return seasonNumber to episodeNumber
+}
+
+private fun formatEpisodeRating(rating: Double): String {
+    val roundedTenths = (rating * 10.0).roundToInt()
+    val whole = roundedTenths / 10
+    val tenth = (roundedTenths % 10).absoluteValue
+    return "$whole.$tenth"
+}

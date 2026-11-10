@@ -1,0 +1,179 @@
+package com.nuvio.app.features.home.components
+
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import com.nuvio.app.core.ui.*
+import com.nuvio.app.core.ui.navigationGlassSource
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
+/**
+ * A dynamic, colorful chromatic gradient background for the home page.
+ * Gently floating chromatic aurora orbs move seamlessly across the screen.
+ */
+@Composable
+fun HomeInteractiveGradientBackground(
+    modifier: Modifier = Modifier,
+    listState: LazyListState? = null,
+    gridState: LazyGridState? = null,
+    settings: AuraSettings = LocalAuraSettings.current,
+) {
+    val tokens = MaterialTheme.nuvio
+    val baseBackground = tokens.colors.background
+
+    val palette = MaterialTheme.themePalette
+    val glows = remember(settings, palette) { resolveAuraPalette(settings, palette) }
+    val intensity = settings.intensity.multiplier
+    val motion = if (settings.animated) rememberAuraMotion() else remember { AuraMotion() }
+
+    val scrollShift by rememberAuraScrollShift(listState, gridState, settings.animated)
+    val colorStops = remember(glows, intensity) {
+        val inner = listOf(0.26f, 0.22f, 0.18f, 0.15f)
+        val outer = listOf(0.12f, 0.10f, 0.08f, 0.05f)
+        glows.mapIndexed { index, glow ->
+            listOf(glow.inner.copy(alpha = intensity * inner[index]),
+                glow.outer.copy(alpha = intensity * outer[index]), Color.Transparent)
+        }
+    }
+
+    Box(
+        modifier = modifier.fillMaxSize().navigationGlassSource(),
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // Observe animation in drawing so each frame skips composition and layout.
+            val phase1 = motion.phase1.value
+            val phase2 = motion.phase2.value
+            val phase3 = motion.phase3.value
+            val phase4 = motion.phase4.value
+            val pulse = motion.pulse.value
+            val w = size.width
+            val h = size.height
+
+            // 1. Base dark background
+            drawRect(color = baseBackground)
+
+            // 2. Ambient Floating Aurora Orbs
+            // Orb 1: Vibrant Indigo / Violet (Top-Left quadrant)
+            val orb1Center = Offset(
+                x = (w * 0.20f) + (cos(phase1) * (w * 0.10f)),
+                y = (h * 0.22f) + (sin(phase1) * 70f) - (scrollShift * 0.5f),
+            )
+            val orb1Radius = (w * 0.46f * pulse).coerceAtLeast(180f)
+            drawAuraOrb(colorStops[0], orb1Center, orb1Radius)
+
+            // Orb 2: Electric Cyan / Turquoise (Top-Right quadrant)
+            val orb2Center = Offset(
+                x = (w * 0.82f) - (sin(phase2) * (w * 0.08f)),
+                y = (h * 0.36f) + (cos(phase2) * 60f) - (scrollShift * 0.6f),
+            )
+            val orb2Radius = (w * 0.42f * pulse).coerceAtLeast(160f)
+            drawAuraOrb(colorStops[1], orb2Center, orb2Radius)
+
+            // Orb 3: Magenta / Fuchsia (Mid-Bottom Center)
+            val orb3Center = Offset(
+                x = (w * 0.48f) + (cos(phase3) * (w * 0.12f)),
+                y = (h * 0.68f) + (sin(phase3) * 80f) - (scrollShift * 0.7f),
+            )
+            val orb3Radius = (w * 0.50f * pulse).coerceAtLeast(200f)
+            drawAuraOrb(colorStops[2], orb3Center, orb3Radius)
+
+            // Orb 4: Rose / Coral Sunset (Bottom-Right quadrant)
+            val orb4Center = Offset(
+                x = (w * 0.85f) + (sin(phase4) * (w * 0.06f)),
+                y = (h * 0.85f) - (cos(phase4) * 50f) - (scrollShift * 0.4f),
+            )
+            val orb4Radius = (w * 0.38f * pulse).coerceAtLeast(150f)
+            drawAuraOrb(colorStops[3], orb4Center, orb4Radius)
+        }
+    }
+}
+
+private fun DrawScope.drawAuraOrb(colors: List<Color>, center: Offset, radius: Float) {
+    drawCircle(Brush.radialGradient(colors, center, radius), radius, center)
+}
+
+private data class AuraMotion(
+    val phase1: State<Float> = mutableStateOf(0f), val phase2: State<Float> = mutableStateOf(0f),
+    val phase3: State<Float> = mutableStateOf(0f), val phase4: State<Float> = mutableStateOf(0f),
+    val pulse: State<Float> = mutableStateOf(1f),
+)
+@Composable
+private fun rememberAuraMotion(): AuraMotion {
+    val infiniteTransition = rememberInfiniteTransition(label = "HomeAmbientGradientTransition")
+
+    val phase1 = infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 26000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "HomeAmbientPhase1",
+    )
+
+    val phase2 = infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 20000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "HomeAmbientPhase2",
+    )
+
+    val phase3 = infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 32000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "HomeAmbientPhase3",
+    )
+
+    val phase4 = infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 24000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "HomeAmbientPhase4",
+    )
+
+    val pulse = infiniteTransition.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.14f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "HomeAmbientGradientPulse",
+    )
+
+    return remember(phase1, phase2, phase3, phase4, pulse) {
+        AuraMotion(phase1, phase2, phase3, phase4, pulse)
+    }
+}

@@ -1,0 +1,404 @@
+package com.nuvio.app
+
+import com.nuvio.app.core.ui.LocalFrostedGlassEnabled
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.background
+import com.nuvio.app.core.ui.collectIsRemoteHoveredAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Casino
+import nuvio.composeapp.generated.resources.picker_title
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.max
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
+import com.nuvio.app.core.ui.LocalDesktopSidebarContentInset
+import com.nuvio.app.core.ui.LocalVerticalBarPadding
+import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
+import com.nuvio.app.core.ui.NuvioNavBarScrollState
+import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.NuvioClassicNavigationBar
+import com.nuvio.app.core.ui.DesktopNavigationBar
+import com.nuvio.app.core.ui.FloatingNavigationBar
+import com.nuvio.app.core.ui.FloatingNavigationItem
+import com.nuvio.app.core.ui.PlatformBackHandler
+import com.nuvio.app.core.ui.isRemoteKeyboardNavigationActive
+import com.nuvio.app.core.ui.rememberNuvioNavBarScrollState
+import com.nuvio.app.core.ui.navigationGlassSource
+import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.home.components.HomeInteractiveGradientBackground
+import com.nuvio.app.features.search.LocalSearchBackdropState
+import com.nuvio.app.features.library.LocalLibraryListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.nuvio.app.features.home.HomeCatalogSettingsRepository
+import com.nuvio.app.features.profiles.NuvioProfile
+import com.nuvio.app.features.profiles.ProfileSwitcherTab
+import com.nuvio.app.features.settings.DesktopNavigationLayout
+import com.nuvio.app.features.settings.NavBarStyle
+import com.nuvio.app.features.settings.ThemeSettingsRepository
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.compose_nav_home
+import nuvio.composeapp.generated.resources.compose_nav_library
+import nuvio.composeapp.generated.resources.compose_nav_profile
+import nuvio.composeapp.generated.resources.compose_nav_search
+import nuvio.composeapp.generated.resources.compose_nav_settings
+import nuvio.composeapp.generated.resources.sidebar_library
+import nuvio.composeapp.generated.resources.sidebar_search
+import org.jetbrains.compose.resources.stringResource
+@Composable
+internal fun MainTabsDestination(
+    selectedTab: AppScreenTab,
+    initialHomeReady: Boolean,
+    rootRouteActive: Boolean,
+    useTabletFloatingTabBar: Boolean,
+    useNativeNavigation: Boolean,
+    useNativeTabBar: Boolean,
+    liquidGlassNativeTabBarSupported: Boolean,
+    liquidGlassNativeTabBarEnabled: Boolean,
+    desktopNavigationLayout: DesktopNavigationLayout,
+    requests: AppTabRequests,
+    state: AppTabState,
+    actions: (isTabletLayout: Boolean) -> AppTabActions,
+    onBack: () -> Unit,
+    onTabSelected: (AppScreenTab) -> Unit,
+    onRandomPickerClick: () -> Unit = {},
+    randomPickerContent: (@Composable () -> Unit)? = null,
+    randomPickerSelected: Boolean = false,
+    onProfileSelected: (NuvioProfile) -> Unit,
+    onAddProfileRequested: () -> Unit,
+) {
+    PlatformBackHandler(enabled = rootRouteActive && !isDesktop, onBack = onBack)
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val screenWidth = maxWidth
+        val isTabletLayout = useTabletFloatingTabBar || screenWidth >= 768.dp
+        val tabActions = remember(actions, isTabletLayout) { actions(isTabletLayout) }
+        val useNativeBottomTabs = if (useNativeNavigation) {
+            useNativeTabBar
+        } else {
+            liquidGlassNativeTabBarSupported && liquidGlassNativeTabBarEnabled && initialHomeReady
+        }
+        val useDesktopSidebar = isDesktop &&
+            isTabletLayout &&
+            !useNativeBottomTabs &&
+            desktopNavigationLayout == DesktopNavigationLayout.Sidebar
+        val useDesktopTopBar = isDesktop && !useNativeBottomTabs && !useDesktopSidebar
+        val useFloatingTopBar = !isDesktop && isTabletLayout && !useNativeBottomTabs
+        val homeCatalogSettingsUiState by remember { HomeCatalogSettingsRepository.uiState }.collectAsStateWithLifecycle()
+        val topChromePadding = if (useFloatingTopBar || useDesktopTopBar) {
+            val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            if (useDesktopTopBar) {
+                if (selectedTab == AppScreenTab.Search || selectedTab == AppScreenTab.Library ||
+                    (selectedTab == AppScreenTab.Home && homeCatalogSettingsUiState.scrollPostersLayoutEnabled)
+                ) {
+                    val navigationIconSize = when {
+                        screenWidth < 800.dp -> 26.dp
+                        screenWidth > 1600.dp -> 30.dp
+                        else -> 28.dp
+                    }
+                    // Match the floating bar's top inset and height, then leave a small content gap.
+                    statusBarPadding + 10.dp + navigationIconSize + 20.dp + NuvioTokens.Space.s16
+                } else {
+                    statusBarPadding + 48.dp + 64.dp
+                }
+            } else {
+                max(statusBarPadding + 24.dp, 48.dp) + 64.dp
+            }
+        } else {
+            null
+        }
+        val tabsRouteActiveState = rememberUpdatedState(rootRouteActive)
+        val navBarScrollState = rememberNuvioNavBarScrollState()
+        LaunchedEffect(selectedTab, randomPickerSelected) {
+            navBarScrollState.switchToTab(selectedTab)
+        }
+        val navBarHazeState = rememberHazeState()
+        val searchBackdropState = rememberHazeState()
+        val libraryListState = rememberLazyListState()
+        val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
+
+        val sidebarHoverSource = remember { MutableInteractionSource() }
+        val isSidebarHovered by sidebarHoverSource.collectIsRemoteHoveredAsState()
+        var isProfileStackVisible by remember { mutableStateOf(false) }
+        var isSidebarFocused by remember { mutableStateOf(false) }
+        val isKeyboardNavigationActive = isRemoteKeyboardNavigationActive
+
+        val isSidebarExpanded = when (navBarStyleSetting) {
+            NavBarStyle.EXPANDED -> true
+            NavBarStyle.COMPACT -> isProfileStackVisible
+            else -> isSidebarHovered || (isKeyboardNavigationActive && isSidebarFocused) || isProfileStackVisible // ADAPTIVE
+        }
+
+        val animatedSidebarWidth by animateDpAsState(
+            targetValue = if (isSidebarExpanded) DesktopSidebarExpandedWidth else DesktopSidebarCollapsedWidth,
+            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+            label = "desktop_sidebar_width",
+        )
+
+        // Adaptive expansion floats over the page without resizing its content.
+        val reservedSidebarWidth = when (navBarStyleSetting) {
+            NavBarStyle.EXPANDED -> DesktopSidebarExpandedWidth
+            NavBarStyle.COMPACT -> animatedSidebarWidth
+            else -> DesktopSidebarCollapsedWidth
+        }
+        val contentStartPadding = if (useDesktopSidebar) {
+            reservedSidebarWidth + DesktopSidebarOuterInset * 2
+        } else {
+            0.dp
+        }
+        val navBarGlowEnabled by ThemeSettingsRepository.navBarGlowEnabled.collectAsStateWithLifecycle()
+        var isTopProfileSwitcherOpen by remember { mutableStateOf(false) }
+        val floatingNavigationItems = listOf(
+            FloatingNavigationItem(
+                selected = !randomPickerSelected && selectedTab == AppScreenTab.Home,
+                onClick = { onTabSelected(AppScreenTab.Home) },
+                icon = Icons.Filled.Home,
+                label = stringResource(Res.string.compose_nav_home),
+            ),
+            FloatingNavigationItem(
+                selected = !randomPickerSelected && selectedTab == AppScreenTab.Search,
+                onClick = { onTabSelected(AppScreenTab.Search) },
+                drawable = Res.drawable.sidebar_search,
+                label = stringResource(Res.string.compose_nav_search),
+            ),
+            FloatingNavigationItem(
+                selected = randomPickerSelected,
+                onClick = onRandomPickerClick,
+                icon = Icons.Filled.Casino,
+                label = stringResource(Res.string.picker_title),
+            ),
+            FloatingNavigationItem(
+                selected = !randomPickerSelected && selectedTab == AppScreenTab.Library,
+                onClick = { onTabSelected(AppScreenTab.Library) },
+                drawable = Res.drawable.sidebar_library,
+                label = stringResource(Res.string.compose_nav_library),
+            ),
+            FloatingNavigationItem(
+                selected = !randomPickerSelected && selectedTab == AppScreenTab.Settings,
+                onClick = { onTabSelected(AppScreenTab.Settings) },
+                label = stringResource(if (isDesktop) Res.string.compose_nav_settings else Res.string.compose_nav_profile),
+                content = { onClick ->
+                    ProfileSwitcherTab(
+                        selected = !randomPickerSelected && selectedTab == AppScreenTab.Settings,
+                        onClick = onClick,
+                        onProfileSelected = onProfileSelected,
+                        onAddProfileRequested = onAddProfileRequested,
+                        hazeState = navBarHazeState,
+                        onPopupStateChanged = { isTopProfileSwitcherOpen = it },
+                        avatarSize = if (isDesktop && screenWidth < 800.dp) 26 else if (isDesktop && screenWidth > 1600.dp) 30 else 28,
+                        popupBelowAnchor = isDesktop || isTabletLayout,
+                    )
+                },
+            ),
+        )
+
+        // Poster and settings pages share a full-window background, without a rectangle at the sidebar inset.
+        if (isDesktop && usesSharedTabBackground(selectedTab, randomPickerSelected)) {
+            val auraBackgroundEnabled by ThemeSettingsRepository.auraBackgroundEnabled.collectAsStateWithLifecycle()
+            val backgroundModifier = Modifier.fillMaxSize()
+                .then(if (LocalFrostedGlassEnabled.current) Modifier.hazeSource(navBarHazeState, zIndex = -1f) else Modifier)
+                .then(if (LocalFrostedGlassEnabled.current && !randomPickerSelected && selectedTab == AppScreenTab.Search) Modifier.hazeSource(searchBackdropState, zIndex = -1f) else Modifier)
+            if (auraBackgroundEnabled) {
+                HomeInteractiveGradientBackground(
+                    modifier = backgroundModifier,
+                    listState = if (randomPickerSelected) null else if (selectedTab == AppScreenTab.Search) state.searchListState else if (selectedTab == AppScreenTab.Library) libraryListState else null,
+                )
+            } else {
+                Box(
+                    modifier = backgroundModifier
+                        .navigationGlassSource(zIndex = -1f)
+                        .background(MaterialTheme.nuvio.colors.background),
+                )
+            }
+        }
+
+        Scaffold(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(if (initialHomeReady) 1f else 0f),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0),
+            bottomBar = {
+                if (!isDesktop && !isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
+                    NuvioClassicNavigationBar {
+                        NavItem(
+                            selected = !randomPickerSelected && selectedTab == AppScreenTab.Home,
+                            onClick = { onTabSelected(AppScreenTab.Home) },
+                            icon = Icons.Filled.Home,
+                            contentDescription = stringResource(Res.string.compose_nav_home),
+                        )
+                        NavItem(
+                            selected = !randomPickerSelected && selectedTab == AppScreenTab.Search,
+                            onClick = { onTabSelected(AppScreenTab.Search) },
+                            icon = Res.drawable.sidebar_search,
+                            contentDescription = stringResource(Res.string.compose_nav_search),
+                        )
+                        NavItem(
+                            selected = !randomPickerSelected && selectedTab == AppScreenTab.Library,
+                            onClick = { onTabSelected(AppScreenTab.Library) },
+                            icon = Res.drawable.sidebar_library,
+                            contentDescription = stringResource(Res.string.compose_nav_library),
+                        )
+                        NavItem(
+                            selected = !randomPickerSelected && selectedTab == AppScreenTab.Settings,
+                            onClick = { onTabSelected(AppScreenTab.Settings) },
+                        ) {
+                            ProfileSwitcherTab(
+                                selected = !randomPickerSelected && selectedTab == AppScreenTab.Settings,
+                                onClick = { onTabSelected(AppScreenTab.Settings) },
+                                onProfileSelected = onProfileSelected,
+                                onAddProfileRequested = onAddProfileRequested,
+                            )
+                        }
+                    }
+                }
+            },
+        ) { innerPadding ->
+            Box(modifier = Modifier.fillMaxSize()) {
+                val requiresNavBarHaze = if (useDesktopTopBar || useDesktopSidebar) {
+                    true
+                } else if (isTabletLayout) {
+                    useFloatingTopBar
+                } else {
+                    !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC
+                }
+                val shouldAttachNestedScroll = if (isDesktop || isTabletLayout) {
+                    true
+                } else {
+                    navBarStyleSetting == NavBarStyle.ADAPTIVE
+                }
+                CompositionLocalProvider(
+                    LocalSearchBackdropState provides searchBackdropState.takeIf { isDesktop },
+                    LocalLibraryListState provides libraryListState.takeIf { isDesktop },
+                    LocalDesktopSidebarContentInset provides if (useDesktopSidebar && !randomPickerSelected && selectedTab == AppScreenTab.Home) contentStartPadding else 0.dp,
+                    LocalNuvioBottomNavigationOverlayPadding provides if (useNativeBottomTabs) 49.dp else if (!isDesktop && !isTabletLayout && navBarStyleSetting != NavBarStyle.CLASSIC) 72.dp else 0.dp,
+                    LocalNuvioNavBarScrollState provides navBarScrollState,
+                ) {
+                    AppTabHost(
+                        selectedTab = selectedTab,
+                        shuffleSelected = randomPickerSelected,
+                        shuffleContent = if (randomPickerContent != null) { {
+                            Box(Modifier.fillMaxSize().padding(start = contentStartPadding)
+                                .padding(LocalVerticalBarPadding.current)) { randomPickerContent() }
+                        } } else null,
+                        requests = requests,
+                        state = state.copy(
+                            tabsRouteActiveState = tabsRouteActiveState,
+                            topChromePadding = topChromePadding,
+                        ),
+                        actions = tabActions,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (LocalFrostedGlassEnabled.current && requiresNavBarHaze) Modifier.hazeSource(state = navBarHazeState) else Modifier)
+                            .then(if (shouldAttachNestedScroll) Modifier.nestedScroll(navBarScrollState.nestedScrollConnection) else Modifier)
+                            .padding(innerPadding)
+                            .padding(start = if (randomPickerSelected || selectedTab == AppScreenTab.Home) 0.dp else contentStartPadding),
+                    )
+                }
+
+                if (useFloatingTopBar) {
+                    TabletFloatingTopBar(
+                        selectedTab = selectedTab,
+                        onTabSelected = onTabSelected,
+                        onProfileSelected = onProfileSelected,
+                        onAddProfileRequested = onAddProfileRequested,
+                        navBarStyleSetting = navBarStyleSetting,
+                        isHeroEnabled = homeCatalogSettingsUiState.heroEnabled,
+                        hazeState = navBarHazeState,
+                        scrollState = navBarScrollState,
+                        windowWidth = screenWidth,
+                    )
+                }
+
+                if (isTabletLayout && !useNativeBottomTabs && !isDesktop) {
+                    val tabletNavBarScrollState = remember { NuvioNavBarScrollState().apply { collapse() } }
+                    FloatingNavigationBar(
+                        modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 416.dp),
+                        scrollState = tabletNavBarScrollState,
+                        hazeState = navBarHazeState,
+                        contentPadding = PaddingValues(
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 10.dp,
+                            bottom = 8.dp,
+                        ),
+                        compactSize = true,
+                        items = floatingNavigationItems,
+                        glowEnabled = navBarGlowEnabled,
+                    )
+                }
+
+                if (useDesktopTopBar) {
+                    DesktopNavigationBar(
+                        items = floatingNavigationItems,
+                        navigationRoute = if (randomPickerSelected) com.nuvio.app.navigation.RandomPickerRoute
+                            else com.nuvio.app.navigation.TabsRoute to selectedTab,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        contentPadding = PaddingValues(
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 10.dp,
+                            bottom = 8.dp,
+                        ),
+                        scrollState = navBarScrollState,
+                        hazeState = navBarHazeState,
+                        navBarStyle = navBarStyleSetting,
+                        isHeroEnabled = homeCatalogSettingsUiState.heroEnabled,
+                        profileSwitcherOpen = isTopProfileSwitcherOpen,
+                        windowWidth = screenWidth,
+                        glowEnabled = navBarGlowEnabled,
+                    )
+                }
+
+                if (!isDesktop && !isTabletLayout && !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC) {
+                    when (navBarStyleSetting) {
+                        NavBarStyle.EXPANDED -> navBarScrollState.expand()
+                        NavBarStyle.COMPACT -> navBarScrollState.collapse()
+                        else -> {}
+                    }
+                    FloatingNavigationBar(
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        scrollState = navBarScrollState,
+                        hazeState = navBarHazeState,
+                        items = floatingNavigationItems,
+                        glowEnabled = navBarGlowEnabled,
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal fun usesSharedTabBackground(selectedTab: AppScreenTab, shuffleSelected: Boolean): Boolean =
+    shuffleSelected || selectedTab in setOf(AppScreenTab.Search, AppScreenTab.Library, AppScreenTab.Settings)

@@ -1,0 +1,195 @@
+package com.nuvio.app.features.home.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.nuvio.app.isDesktop
+import com.nuvio.app.core.ui.SkeletonBlock
+import com.nuvio.app.core.ui.SkeletonPosterRow
+import com.nuvio.app.core.ui.desktopCatalogShelfPosterBaseWidthDp
+import com.nuvio.app.core.ui.landscapePosterHeightForWidth
+import com.nuvio.app.core.ui.landscapePosterWidth
+import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
+import com.nuvio.app.core.ui.skeleton
+
+@Composable
+fun HomeSkeletonHero(
+    modifier: Modifier = Modifier,
+    viewportHeight: Dp? = null,
+    mobileBelowSectionHeightHint: Dp? = null,
+    sectionPadding: Dp? = null,
+    containerMode: Boolean = false,
+) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (containerMode) Modifier else Modifier.heroBottomFeather(bottomFadeRatio = 0.42f)),
+    ) {
+        val layout = homeHeroLayout(
+            maxWidthDp = maxWidth.value,
+            viewportHeightDp = viewportHeight?.value,
+            mobileBelowSectionHeightHintDp = mobileBelowSectionHeightHint?.value,
+            preferDesktopLayout = isDesktop,
+        )
+        val containerWidth = maxWidth
+        val contentHorizontalPadding = sectionPadding ?: layout.contentHorizontalPadding
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(layout.heroHeight)
+                .skeleton(RectangleShape),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.02f),
+                                Color.Black.copy(alpha = 0.10f),
+                                Color.Black.copy(alpha = 0.28f),
+                                Color.Black.copy(alpha = 0.65f),
+                            ),
+                        ),
+                    ),
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(layout.bottomFadeHeight)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.35f),
+                                Color.Black.copy(alpha = 0.75f),
+                            ),
+                        ),
+                    ),
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .then(
+                        if (isDesktop) {
+                            Modifier
+                                .widthIn(max = layout.contentContainerMaxWidth)
+                                .fillMaxWidth()
+                        } else {
+                            Modifier.fillMaxWidth()
+                        },
+                    )
+                    .padding(
+                        horizontal = contentHorizontalPadding,
+                        vertical = layout.contentVerticalPadding,
+                    ),
+                horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(layout.contentWidthFraction)
+                        .widthIn(max = layout.contentMaxWidth),
+                    horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
+                ) {
+                    val logoWidth = containerWidth
+                        .times(layout.contentWidthFraction * layout.logoWidthFraction)
+                        .coerceAtMost(layout.contentMaxWidth * layout.logoWidthFraction)
+
+                    Box(
+                        modifier = Modifier.width(logoWidth).height(logoWidth / 2.6f),
+                        contentAlignment = if (layout.isTablet) Alignment.BottomStart else Alignment.BottomCenter,
+                    ) {
+                        SkeletonBlock(width = logoWidth, height = 32.dp, cornerRadius = 8.dp)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    SkeletonBlock(width = 156.dp, height = 10.dp)
+                }
+                if (!layout.isTablet) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    SkeletonBlock(
+                        width = 160.dp,
+                        height = 48.dp,
+                        cornerRadius = 40.dp,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeSkeletonRow(
+    modifier: Modifier = Modifier,
+    horizontalPadding: Dp? = null,
+    useGutterLayout: Boolean = false,
+) {
+    val posterCardStyle = rememberPosterCardStyleUiState()
+    val basePosterWidthDp = if (isDesktop) {
+        desktopCatalogShelfPosterBaseWidthDp(posterCardStyle.widthDp)
+    } else {
+        posterCardStyle.widthDp
+    }
+    val skeletonWidth = if (posterCardStyle.catalogLandscapeModeEnabled) {
+        landscapePosterWidth(basePosterWidthDp)
+    } else {
+        basePosterWidthDp.dp
+    }
+    val skeletonHeight = if (posterCardStyle.catalogLandscapeModeEnabled) {
+        landscapePosterHeightForWidth(skeletonWidth)
+    } else {
+        if (isDesktop) {
+            ((posterCardStyle.heightDp * basePosterWidthDp.toFloat()) / posterCardStyle.widthDp).toInt().dp
+        } else {
+            posterCardStyle.heightDp.dp
+        }
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val sectionPadding = horizontalPadding ?: homeSectionHorizontalPaddingForWidth(maxWidth.value)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(modifier = Modifier.padding(horizontal = sectionPadding).height(32.dp)) {
+                SkeletonBlock(
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    width = 128.dp,
+                    height = 16.dp,
+                )
+            }
+            SkeletonPosterRow(
+                width = skeletonWidth,
+                height = skeletonHeight,
+                cornerRadius = posterCardStyle.cornerRadiusDp.dp,
+                horizontalPadding = sectionPadding,
+                useGutterLayout = useGutterLayout,
+                showLabels = !posterCardStyle.hideLabelsEnabled,
+                showDetail = !posterCardStyle.catalogLandscapeModeEnabled,
+            )
+        }
+    }
+}

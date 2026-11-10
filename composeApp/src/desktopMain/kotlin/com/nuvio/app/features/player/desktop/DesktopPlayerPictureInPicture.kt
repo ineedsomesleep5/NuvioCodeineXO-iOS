@@ -1,0 +1,269 @@
+package com.nuvio.app.features.player.desktop
+
+import androidx.compose.ui.unit.IntSize
+import co.touchlab.kermit.Logger
+import com.nuvio.app.features.settings.AppIconRepository
+import java.awt.Frame
+import java.awt.GraphicsEnvironment
+import java.awt.KeyboardFocusManager
+import java.awt.Rectangle
+import java.awt.Window
+import javax.imageio.ImageIO
+import javax.swing.SwingUtilities
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/** Coordinates the independent PiP window without moving the Compose/AWT Canvas. */
+internal object DesktopPlayerPictureInPicture {
+    private val log = Logger.withTag("DesktopPlayerPiP")
+    private val _changes = MutableStateFlow(0)
+    val changes: StateFlow<Int> = _changes.asStateFlow()
+
+    @Volatile
+    var isEnabled: Boolean = false
+        private set
+
+    private var host: NativePlayerHost? = null
+    private var controller: NativePlayerController? = null
+    internal var pipWindow: DesktopPlayerPipWindow? = null
+    private var mainWindow: Window? = null
+    private var windowTitle = ""
+    private var lastVideoSize = IntSize.Zero
+    private var transition = false
+    private var lastToggleAtMs = 0L
+
+    fun setHost(value: NativePlayerHost) = onEdt {
+        host = value
+    }
+
+    fun setController(value: NativePlayerController) = onEdt {
+        controller = value
+    }
+
+    fun setWindowTitle(title: String) = onEdt {
+        windowTitle = title
+        pipWindow?.updateWindowTitle(title)
+    }
+
+    fun update(isPlaying: Boolean, videoSize: IntSize) = onEdt {
+        lastVideoSize = videoSize
+        pipWindow?.let { window ->
+            if (videoSize.width > 0 && videoSize.height > 0) {
+                val ratio = videoSize.width.toFloat() / videoSize.height.toFloat()
+                if (window.aspectRatio == ratio) return@let
+                window.aspectRatio = ratio
+                runCatching {
+                    val windowPointer = AwtNativeViewResolver.resolveNativeViewPointer(window)
+                    NativePlayerBridge.setWindowAspectRatio(windowPointer, ratio)
+                }.onFailure { error -> log.w(error) { "failed to update PiP aspect ratio" } }
+                window.bounds = desktopPipBoundsForAspectRatio(window.bounds, ratio)
+                window.revalidate()
+            }
+        }
+    }
+
+    fun resizeWindow(encodedValue: Double) = onEdt {
+        val win = pipWindow ?: return@onEdt
+        val anchor = (encodedValue / 100000.0).toInt()
+        val targetWidth = (encodedValue % 100000.0).toInt().coerceIn(320, 1920)
+        val targetHeight = (targetWidth / win.aspectRatio).toInt()
+        val b = win.bounds
+        val newX = when (anchor) {
+            1, 3 -> b.x + b.width - targetWidth
+            else -> b.x
+        }
+        val newY = when (anchor) {
+            1, 2 -> b.y + b.height - targetHeight
+            else -> b.y
+        }
+        win.setBounds(newX, newY, targetWidth, targetHeight)
+        win.updateWindowShape()
+        win.revalidate()
+    }
+
+    fun toggle() = onEdt {
+        if (!isSupportedHost()) return@onEdt
+        if (transition) return@onEdt
+        val now = System.currentTimeMillis()
+        if (now - lastToggleAtMs < 300L) return@onEdt
+        lastToggleAtMs = now
+        log.d { "toggle enabled=$isEnabled host=${host != null} controller=${controller != null}" }
+        if (isEnabled) restoreOnEdt() else enterOnEdt()
+    }
+
+    fun clear() = onEdt {
+        if (transition || !isEnabled) return@onEdt
+        restoreOnEdt()
+    }
+
+    fun release() = onEdt {
+        transition = true
+        val window = pipWindow
+        val mainWin = mainWindow
+        pipWindow = null
+        mainWindow = null
+        isEnabled = false
+        controller?.setPictureInPictureActive(false)
+        window?.dispose()
+        if (mainWin != null && !mainWin.isVisible) {
+            mainWin.isVisible = true
+            if (mainWin is Frame) {
+                val state = mainWin.extendedState
+                if (state and Frame.ICONIFIED != 0) {
+                    mainWin.extendedState = state and Frame.ICONIFIED.inv()
+                }
+            }
+            mainWin.toFront()
+            mainWin.requestFocus()
+        }
+        host = null
+        controller = null
+        lastVideoSize = IntSize.Zero
+        transition = false
+        notifyChanged()
+    }
+
+    private fun enterOnEdt() {
+        val mainHost = host ?: return
+        val player = controller ?: return
+        if (!mainHost.isDisplayable) return
+
+        transition = true
+        val owner = SwingUtilities.getWindowAncestor(mainHost) ?: currentWindow()
+        mainWindow = owner
+        val window = DesktopPlayerPipWindow(
+            onCloseRequested = ::clear,
+            onResized = { controller?.layoutNativeSubviews() },
+            onFocusGained = { controller?.requestKeyboardFocus() },
+        ).apply {
+            aspectRatio = videoAspectRatio()
+            updateWindowTitle(windowTitle)
+            bounds = computeDefaultBounds(owner, aspectRatio)
+            isAlwaysOnTop = true
+            isVisible = true
+            AppIconRepository.ensureLoaded()
+            val iconKey = AppIconRepository.state.value.selected.key
+            runCatching {
+                val iconPath = "icons/app-icon-${iconKey}-transparent.png"
+                val stream = Thread.currentThread().contextClassLoader.getResourceAsStream(iconPath)
+                stream?.use { ImageIO.read(it) }?.let { image -> iconImages = listOf(image) }
+            }.onFailure { error -> log.w(error) { "failed to set PiP window icon key=$iconKey" } }
+        }
+        window.updateWindowShape()
+        pipWindow = window
+
+        runCatching {
+            val windowPointer = AwtNativeViewResolver.resolveNativeViewPointer(window)
+            NativePlayerBridge.setWindowAspectRatio(windowPointer, window.aspectRatio)
+            NativePlayerBridge.setWindowResizable(windowPointer, false)
+            window.validate()
+        }.onFailure { error -> log.w(error) { "failed to set PiP window borderless" } }
+
+        val pipHost = window.videoHolderPanel
+        log.d { "created window displayable=${window.isDisplayable} visible=${window.isVisible} pipHostDisplayable=${pipHost.isDisplayable}" }
+        if (!pipHost.isDisplayable) {
+            window.dispose()
+            pipWindow = null
+            mainWindow = null
+            transition = false
+            return
+        }
+        if (!player.reparentSurface(pipHost)) {
+            log.w { "native surface reparent failed; closing PiP window" }
+            window.dispose()
+            pipWindow = null
+            mainWindow = null
+            transition = false
+            return
+        }
+        player.setPictureInPictureActive(true)
+        isEnabled = true
+        log.d { "PiP entered" }
+        owner?.isVisible = false
+        transition = false
+        notifyChanged()
+        window.toFront()
+        window.requestFocus()
+    }
+
+    private fun restoreOnEdt() {
+        val window = pipWindow ?: return
+        val mainHost = host
+        val player = controller
+        val mainWin = mainWindow
+
+        transition = true
+        if (mainWin != null) {
+            mainWin.isVisible = true
+            if (mainWin is Frame) {
+                val state = mainWin.extendedState
+                if (state and Frame.ICONIFIED != 0) {
+                    mainWin.extendedState = state and Frame.ICONIFIED.inv()
+                }
+            }
+            mainWin.toFront()
+            mainWin.requestFocus()
+        }
+        if (mainHost != null && mainHost.isDisplayable && player != null) {
+            val restored = player.reparentSurface(mainHost)
+            log.d { "restoring PiP native surface success=$restored" }
+            mainHost.requestFocusInWindow()
+        }
+        player?.setPictureInPictureActive(false)
+        runCatching {
+            val windowPointer = AwtNativeViewResolver.resolveNativeViewPointer(window)
+            NativePlayerBridge.setWindowResizable(windowPointer, false)
+        }
+        window.isVisible = false
+        window.dispose()
+        pipWindow = null
+        mainWindow = null
+        isEnabled = false
+        transition = false
+        notifyChanged()
+    }
+
+    private fun isSupportedHost(): Boolean =
+        DesktopHostOs.current == DesktopHostOs.WINDOWS ||
+            DesktopHostOs.current == DesktopHostOs.MACOS
+
+    private fun videoAspectRatio(): Float =
+        if (lastVideoSize.width > 0 && lastVideoSize.height > 0) {
+            lastVideoSize.width.toFloat() / lastVideoSize.height.toFloat()
+        } else {
+            16f / 9f
+        }
+
+    private fun computeDefaultBounds(window: Window?, aspectRatio: Float): Rectangle {
+        val configuration = window?.graphicsConfiguration
+            ?: GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration
+        val screen = configuration.bounds
+        val insets = ToolkitInsets.get(configuration)
+        val size = desktopPipBoundsForAspectRatio(Rectangle(0, 0, 480, 180), aspectRatio)
+        return Rectangle(
+            screen.x + screen.width - insets.right - size.width - 24,
+            screen.y + screen.height - insets.bottom - size.height - 24,
+            size.width,
+            size.height,
+        )
+    }
+
+    private fun currentWindow(): Window? =
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+            ?: Window.getWindows().firstOrNull { it.isDisplayable && it.isVisible }
+
+    private fun onEdt(action: () -> Unit) {
+        if (SwingUtilities.isEventDispatchThread()) action() else SwingUtilities.invokeLater(action)
+    }
+
+    private fun notifyChanged() {
+        _changes.value += 1
+    }
+}
+
+private object ToolkitInsets {
+    fun get(configuration: java.awt.GraphicsConfiguration): java.awt.Insets =
+        runCatching { java.awt.Toolkit.getDefaultToolkit().getScreenInsets(configuration) }
+            .getOrElse { java.awt.Insets(0, 0, 0, 0) }
+}
