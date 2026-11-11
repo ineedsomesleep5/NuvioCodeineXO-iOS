@@ -117,7 +117,9 @@ class MdbListAuthStore(
         true
     }
 
-    private fun load(profileId: Int): MdbListStoredAuth = persistence.read(profileId)?.let { value ->
+    // A credential store that cannot be read (e.g. iOS keychain errSecMissingEntitlement / -34018,
+    // or a locked device) means "signed out", not an app crash at startup.
+    private fun load(profileId: Int): MdbListStoredAuth = runCatching { persistence.read(profileId) }.getOrNull()?.let { value ->
         runCatching { json.decodeFromString<MdbListStoredAuth>(value) }.getOrNull()
     }?.takeIf { value ->
         value.tokens == null || (value.tokens.accessToken.isNotBlank() && value.tokens.refreshToken.isNotBlank())
