@@ -75,3 +75,8 @@ __pycache__/
 *.py[cod]
 !composeApp/src/desktopMain/native/windows/svp-runtime/**/*.pyd
 *$py.class
+
+# iOS TestFlight tooling for this fork
+!scripts/deploy-ios-testflight.sh
+!scripts/asc-testflight-status.py
+!docs/IOS-TESTFLIGHT.md
