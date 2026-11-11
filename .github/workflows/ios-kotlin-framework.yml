@@ -2,7 +2,7 @@
 # (release) Kotlin/Native ComposeApp.framework for iPhone (arm64). Signing, archiving and
 # the TestFlight upload happen on the owner's Mac with scripts/deploy-ios-testflight.sh
 # --prebuilt-framework, so no signing certificate or App Store Connect key is stored here.
-name: iOS Kotlin framework (release)
+name: iOS Kotlin framework (device debug)
 
 on:
   workflow_dispatch:
@@ -61,24 +61,24 @@ jobs:
           # Runtime config must exist; this fork intentionally ships no service keys.
           printf '# CI: no service keys\n' > local.properties
 
-      - name: Link release framework (iosArm64)
+      - name: Link development framework (iosArm64)
         run: |
           ./gradlew --no-configuration-cache \
             -Dorg.gradle.jvmargs="-Xmx1536m -Dfile.encoding=UTF-8" \
             -Pkotlin.daemon.jvmargs=-Xmx1g \
             -Pkotlin.native.disableCompilerDaemon=true \
             "-Pkotlin.native.jvmArgs=-Xmx$(( $(sysctl -n hw.memsize) / 1073741824 * 1024 - 1536 ))m" \
-            :composeApp:linkReleaseFrameworkIosArm64
-          ls -la composeApp/build/bin/iosArm64/releaseFramework/
+            :composeApp:linkDebugFrameworkIosArm64
+          ls -la composeApp/build/bin/iosArm64/debugFramework/
 
       - name: Package framework
         run: |
-          cd composeApp/build/bin/iosArm64/releaseFramework
-          ditto -c -k --keepParent ComposeApp.framework "$GITHUB_WORKSPACE/ComposeApp-iosArm64-release.zip"
-          shasum -a 256 "$GITHUB_WORKSPACE/ComposeApp-iosArm64-release.zip"
+          cd composeApp/build/bin/iosArm64/debugFramework
+          ditto -c -k --keepParent ComposeApp.framework "$GITHUB_WORKSPACE/ComposeApp-iosArm64-debug.zip"
+          shasum -a 256 "$GITHUB_WORKSPACE/ComposeApp-iosArm64-debug.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ComposeApp-iosArm64-release-${{ github.sha }}
-          path: ComposeApp-iosArm64-release.zip
+          name: ComposeApp-iosArm64-debug-${{ github.sha }}
+          path: ComposeApp-iosArm64-debug.zip
           retention-days: 14
