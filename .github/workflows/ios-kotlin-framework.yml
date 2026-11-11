@@ -17,7 +17,9 @@ concurrency:
 
 jobs:
   framework:
-    runs-on: xcode-27
+    # Intel runner: ~14 GB RAM for public repos (the arm64 runner has 7 GB, too little for the
+    # release link). Kotlin/Native cross-compiles iosArm64 from x86_64 hosts.
+    runs-on: macos-26-intel
     timeout-minutes: 90
     env:
       NUVIO_IOS_DISTRIBUTION: full
@@ -38,6 +40,12 @@ jobs:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
           restore-keys: konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Select newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          newest="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          echo "DEVELOPER_DIR=${newest}/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Machine resources
         run: |
