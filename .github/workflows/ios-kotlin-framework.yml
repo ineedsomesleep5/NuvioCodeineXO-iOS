@@ -20,7 +20,7 @@ jobs:
     # Intel runner: ~14 GB RAM for public repos (the arm64 runner has 7 GB, too little for the
     # release link). Kotlin/Native cross-compiles iosArm64 from x86_64 hosts.
     runs-on: macos-26-intel
-    timeout-minutes: 90
+    timeout-minutes: 240
     env:
       NUVIO_IOS_DISTRIBUTION: full
       GRADLE_OPTS: -Dfile.encoding=UTF-8
