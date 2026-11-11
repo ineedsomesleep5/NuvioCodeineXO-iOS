@@ -60,10 +60,11 @@ if [[ "${from_github}" == 1 ]]; then
     git diff --quiet HEAD -- composeApp || { echo "composeApp has uncommitted changes; the GitHub framework would not match." >&2; exit 1; }
     download_dir="${repository_root}/build/prebuilt/${commit}"
     if [[ ! -d "${download_dir}/ComposeApp.framework" ]]; then
-        run_id="$(gh run list --workflow ios-kotlin-framework.yml --commit "${commit}" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+        github_repo="$(git remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+        run_id="$(gh run list -R "${github_repo}" --workflow ios-kotlin-framework.yml --commit "${commit}" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
         [[ -n "${run_id}" ]] || { echo "No successful GitHub framework build for ${commit} yet." >&2; exit 1; }
         rm -rf "${download_dir}" && mkdir -p "${download_dir}"
-        gh run download "${run_id}" --name "ComposeApp-iosArm64-release-${commit}" --dir "${download_dir}"
+        gh run download "${run_id}" -R "${github_repo}" --name "ComposeApp-iosArm64-release-${commit}" --dir "${download_dir}"
         ditto -x -k "${download_dir}/ComposeApp-iosArm64-release.zip" "${download_dir}"
     fi
     prebuilt_framework="${download_dir}/ComposeApp.framework"
