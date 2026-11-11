@@ -1,0 +1,76 @@
+# Builds only the heavy part of the iOS app on GitHub's Mac runners: the optimized
+# (release) Kotlin/Native ComposeApp.framework for iPhone (arm64). Signing, archiving and
+# the TestFlight upload happen on the owner's Mac with scripts/deploy-ios-testflight.sh
+# --prebuilt-framework, so no signing certificate or App Store Connect key is stored here.
+name: iOS Kotlin framework (release)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-testflight]
+    paths-ignore:
+      - "**.md"
+
+concurrency:
+  group: ios-kotlin-framework-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  framework:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    env:
+      NUVIO_IOS_DISTRIBUTION: full
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Kotlin Native
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Machine resources
+        run: |
+          sysctl -n hw.memsize | awk '{printf "RAM: %.1f GB\n", $1/1073741824}'
+          sysctl -n hw.ncpu
+          xcodebuild -version
+
+      - name: Prepare dependencies (MPVKit pin + Nuvio Engine)
+        run: |
+          git clone --quiet https://github.com/NuvioMedia/MPVKit.git MPVKit
+          git -C MPVKit checkout --quiet bfeb6fcfa2bd5081a9666ae5bb42b50e6c1537e8
+          ./scripts/prepare-ios-dependencies.sh
+          # Runtime config must exist; this fork intentionally ships no service keys.
+          printf '# CI: no service keys\n' > local.properties
+
+      - name: Link release framework (iosArm64)
+        run: |
+          ./gradlew --no-configuration-cache \
+            -Dorg.gradle.jvmargs="-Xmx1536m -Dfile.encoding=UTF-8" \
+            -Pkotlin.daemon.jvmargs=-Xmx1g \
+            -Pkotlin.native.disableCompilerDaemon=true \
+            "-Pkotlin.native.jvmArgs=-Xmx$(( $(sysctl -n hw.memsize) / 1073741824 * 1024 - 1536 ))m" \
+            :composeApp:linkReleaseFrameworkIosArm64
+          ls -la composeApp/build/bin/iosArm64/releaseFramework/
+
+      - name: Package framework
+        run: |
+          cd composeApp/build/bin/iosArm64/releaseFramework
+          ditto -c -k --keepParent ComposeApp.framework "$GITHUB_WORKSPACE/ComposeApp-iosArm64-release.zip"
+          shasum -a 256 "$GITHUB_WORKSPACE/ComposeApp-iosArm64-release.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ComposeApp-iosArm64-release-${{ github.sha }}
+          path: ComposeApp-iosArm64-release.zip
+          retention-days: 14
