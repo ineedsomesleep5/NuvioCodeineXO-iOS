@@ -75,6 +75,10 @@ internal fun SettingsRootDestination(
         requestedPageName = route.pageName,
         onRequestedPageConsumed = {},
         rootActionsEnabled = false,
+        onNavigatePage = if (useNativeNavigation) {
+            { pageName, title -> navController.navigate(SettingsPageRoute(pageName, title)) }
+        } else null,
+        onExternalBack = if (useNativeNavigation) onBack else null,
         onCollectionsClick = {
             navController.navigate(CollectionsRoute(collectionsTitle))
         },
