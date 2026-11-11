@@ -158,31 +158,8 @@ CCCryptorStatus CCCryptorCreateWithMode(
     CCCryptorRef *cryptorRef
 );
 
-CCCryptorStatus CCCryptorGCMAddAAD(
-    CCCryptorRef cryptorRef,
-    const void *aData,
-    size_t aDataLen
-);
-
-CCCryptorStatus CCCryptorGCMEncrypt(
-    CCCryptorRef cryptorRef,
-    const void *dataIn,
-    size_t dataInLength,
-    void *dataOut
-);
-
-CCCryptorStatus CCCryptorGCMDecrypt(
-    CCCryptorRef cryptorRef,
-    const void *dataIn,
-    size_t dataInLength,
-    void *dataOut
-);
-
-CCCryptorStatus CCCryptorGCMFinal(
-    CCCryptorRef cryptorRef,
-    void *tag,
-    size_t *tagLength
-);
+/* CCCryptorGCM* are private CommonCrypto SPI (App Store Connect ITMS-90338); AES-GCM is
+   implemented in AesGcm.kt on top of the public CCCrypt ECB primitive instead. */
 
 CCCryptorStatus CCCryptorRelease(
     CCCryptorRef cryptorRef
